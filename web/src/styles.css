@@ -66,6 +66,27 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 
+/* ------------------------------ 页面滚动条自动隐藏 ------------------------------
+   平时透明，滚动期间（<html> 挂 .is-scrolling，见 AppLayout）显形，停止 0.9s 后淡出。
+   Firefox 走 scrollbar-color，Chromium 系走 ::-webkit-scrollbar。 */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+html.is-scrolling { scrollbar-color: var(--border-strong) transparent; }
+html::-webkit-scrollbar { width: 10px; }
+html::-webkit-scrollbar-track { background: transparent; }
+html::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+html.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
 /* ------------------------------ 通用组件 ------------------------------ */
 .card {
   background: var(--panel);
@@ -129,7 +150,22 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 .badge.warn { background: rgba(217, 119, 6, 0.12); color: var(--warn); }
 .badge.danger { background: var(--danger-weak); color: var(--danger); }
 
-.table-wrap { overflow: auto; }
+/* 表格滚动条自动隐藏：平时透明，滚动时（容器挂 .is-scrolling，见 ModelView）显形。
+   Firefox 走 scrollbar-color，Chromium 系走 ::-webkit-scrollbar。 */
+.table-wrap { overflow: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.table-wrap.is-scrolling { scrollbar-color: var(--border-strong) transparent; }
+.table-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+.table-wrap::-webkit-scrollbar-track { background: transparent; }
+.table-wrap::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.table-wrap.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
 table.data { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 table.data th, table.data td {
   padding: 10px 14px;

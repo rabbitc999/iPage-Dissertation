@@ -5,7 +5,7 @@
  * 侧边菜单来自 {@code GET /api/nav}，按 {@code group} 分组渲染，
  * 因此新增模型不需要改这里。移动端把侧边栏收进抽屉。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/http'
 import { auth, can, logout } from '../stores/auth'
@@ -69,6 +69,24 @@ function toggleTheme() {
   localStorage.setItem('ims_theme', dark.value ? 'dark' : 'light')
 }
 
+// ------------------------------------------------------------------ 页面滚动条自动隐藏
+
+/** 页面级滚动条「正在滚动」的定时器：停止滚动 0.9s 后摘掉类名。 */
+let pageScrollTimer = null
+
+/**
+ * 滚动期间给 <html> 挂 is-scrolling，让页面滚动条显形，停止后自动隐藏。
+ * 滚动条样式见 styles.css 的「页面滚动条自动隐藏」段。
+ */
+function onPageScroll() {
+  document.documentElement.classList.add('is-scrolling')
+  clearTimeout(pageScrollTimer)
+  pageScrollTimer = setTimeout(
+    () => document.documentElement.classList.remove('is-scrolling'),
+    900
+  )
+}
+
 async function signOut() {
   await logout()
   router.push('/login')
@@ -77,6 +95,12 @@ async function signOut() {
 onMounted(() => {
   loadNav()
   loadBrand()
+  window.addEventListener('scroll', onPageScroll, { passive: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', onPageScroll)
+  clearTimeout(pageScrollTimer)
 })
 </script>
 

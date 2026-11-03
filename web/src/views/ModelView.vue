@@ -7,7 +7,7 @@
  * <p>
  * 列显隐与每页条数按用户保存到 {@code /api/views/{key}}，换账号不串数据。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/http'
 import { toast, toastError } from '../api/toast'
@@ -319,6 +319,25 @@ watch(key, () => {
 })
 
 onMounted(bootstrap)
+
+// ------------------------------------------------------------------ 表格滚动条自动隐藏
+
+/** 表格滚动容器。 */
+const tableWrap = ref(null)
+/** 「正在滚动」状态的定时器：停止滚动 0.9s 后摘掉类名，滚动条随之淡出。 */
+let hideTimer = null
+
+/**
+ * 滚动期间给容器挂 is-scrolling，让滚动条显形；停止后自动隐藏。
+ * 滚动条本体样式见 styles.css 的 .table-wrap 段。
+ */
+function onTableScroll() {
+  tableWrap.value?.classList.add('is-scrolling')
+  clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => tableWrap.value?.classList.remove('is-scrolling'), 900)
+}
+
+onUnmounted(() => clearTimeout(hideTimer))
 </script>
 
 <template>
@@ -379,7 +398,7 @@ onMounted(bootstrap)
     <div v-if="error" class="card error-card">{{ error }}</div>
 
     <div v-else class="card table-card">
-      <div class="table-wrap">
+      <div ref="tableWrap" class="table-wrap" @scroll="onTableScroll">
         <table class="data">
           <thead>
             <tr>
