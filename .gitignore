@@ -4,6 +4,10 @@ target/
 dist/
 node_modules/
 
+# Python
+__pycache__/
+*.pyc
+
 # 运行期数据（含 H2 库文件与 AI 工作目录）
 server/data/
 server/data.bak-*/

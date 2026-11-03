@@ -394,6 +394,7 @@ curl -s localhost:8080/api/nav -H "Authorization: Bearer $TOKEN"   # 新模型�
 | 前端表单长什么样 | `meta/MetaService.describe()` + `web/src/components/DataForm.vue` |
 | AI 有哪些工具 | `ai/AiEngineManager.registerTools()` |
 | 演示数据 | `seed/DataInitializer` |
+| 独立客户端怎么对接 | `clients/cli/ims_cli.py` + `docs/10-客户端开发指南.md` |
 
 ---
 

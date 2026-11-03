@@ -144,6 +144,8 @@ ipage-ims/
 │       ├── views/         # 6 个页面
 │       ├── components/    # AppLayout / DataForm
 │       └── api/ stores/
+├── clients/               # 独立客户端示例
+│   └── cli/ims_cli.py     # 零依赖命令行客户端（登录/查询/增删改）
 ├── docs/                  # ★ 知识库文档
 ├── AGENTS.md              # ★ AI/开发者修改本系统的操作手册
 ├── THIRD-PARTY-NOTICES.md # 第三方许可证与合规说明
@@ -165,6 +167,28 @@ ipage-ims/
 | [docs/07-AI集成-MCP与Skill.md](docs/07-AI集成-MCP与Skill.md) | AI 架构、工具白名单、MCP/Skill 管理 |
 | [docs/08-部署运维.md](docs/08-部署运维.md) | 打包、切库、安全清单、备份 |
 | [docs/09-常见问题.md](docs/09-常见问题.md) | 启动失败、权限 403、乱码等排查 |
+| [docs/10-客户端开发指南.md](docs/10-客户端开发指南.md) | **独立客户端**（小程序/桌面/移动/命令行）如何对接同一套接口 |
+
+## 客户端开发
+
+`web/` 是随服务端一起发布的管理端。如果还需要一个**独立客户端**（毕业设计常见的"员工小程序"、
+桌面工具、安卓 App），不需要碰后端一行代码——它对接的是同一套 `/api` 接口，
+权限、数据范围、审计完全一致：
+
+- 选型对比、请求层封装、schema 驱动页面、可运行的小程序示例代码 →
+  [docs/10-客户端开发指南.md](docs/10-客户端开发指南.md)
+- 接口清单 → [docs/05-API参考.md](docs/05-API参考.md)
+
+要点只有三条：**令牌走 `Authorization: Bearer`**、**字段从 schema 读不要写死**、
+**主键是 UUID 字符串不要转 Number**。
+
+仓库里带了一个可直接运行的参考客户端（零依赖，可当演示数据工具）：
+
+```bash
+cd clients/cli
+python ims_cli.py login --user admin --password admin123
+python ims_cli.py list employee --kw 苏
+```
 
 ## 许可证
 
