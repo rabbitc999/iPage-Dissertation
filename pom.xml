@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.rabbitc.ims</groupId>
+    <artifactId>ipage-ims</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>ipage-ims</name>
+    <description>基于 ipage 的自动化信息管理系统（Spring Boot + Vue 3）</description>
+
+    <!--
+        三个模块：
+        - libs/ipage           从 ipage 复制的 SQL 引擎源码（Apache-2.0），仅 main 源码
+        - libs/embed-ai-chat   从 EmbedAiChat 复制的 Java 聊天核心（AGPL-3.0），AI 模块为可选项
+        - server               Spring Boot 服务端
+
+        不依赖本机 Maven 仓库里预装的 ipage，clone 下来直接 mvn package 即可。
+    -->
+    <modules>
+        <module>libs/ipage</module>
+        <module>libs/embed-ai-chat</module>
+        <module>server</module>
+    </modules>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+</project>

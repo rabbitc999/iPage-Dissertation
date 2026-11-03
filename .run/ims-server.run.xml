@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="ims-server" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="ims-server" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.rabbitc.ims.ImsApplication" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/server" />
+    <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="false" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

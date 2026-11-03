@@ -1,0 +1,9 @@
+# 切换到 MySQL / MariaDB 用这个 profile：
+#   java -jar ims-server.jar --spring.profiles.active=mysql
+# 表结构仍由 ipage 按模型自动创建（只建表、补列）。
+spring:
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/ipage_ims?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}

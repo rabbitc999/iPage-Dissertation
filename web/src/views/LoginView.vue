@@ -1,0 +1,172 @@
+<script setup>
+/**
+ * 登录页。
+ * <p>
+ * 左侧品牌区在窄屏隐藏，右侧表单支持演示账号一键填充。
+ * 登录成功后按 {@code ?redirect=} 回跳，没有则进工作台。
+ */
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { login } from '../stores/auth'
+import { toastError } from '../api/toast'
+
+const router = useRouter()
+const route = useRoute()
+const username = ref('admin')
+const password = ref('admin123')
+const loading = ref(false)
+const error = ref('')
+
+async function submit() {
+  error.value = ''
+  loading.value = true
+  try {
+    await login(username.value.trim(), password.value)
+    const target = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
+    router.replace(target)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loading.value = false
+  }
+}
+
+function fill(name, pwd) {
+  username.value = name
+  password.value = pwd
+}
+
+onMounted(() => {
+  if (localStorage.getItem('ims_theme') === 'dark') {
+    document.documentElement.dataset.theme = 'dark'
+  }
+})
+</script>
+
+<template>
+  <div class="login">
+    <section class="brand-side">
+      <div class="brand-inner">
+        <div class="mark">I</div>
+        <h1>信息管理系统</h1>
+        <p class="lead">
+          注解即表结构，模型即页面。<br />
+          一套模型定义，自动长出建表、CRUD、权限与审计。
+        </p>
+        <ul class="points">
+          <li><b>ipage</b> 负责 SQL 与表结构，不写 Mapper</li>
+          <li><b>RBAC</b> 角色等级 + 权限点 + 数据范围</li>
+          <li><b>Vue</b> 按服务端 schema 渲染表格与表单</li>
+          <li><b>AI</b> MCP 与 Skill 动态装配，工具受同一套权限约束</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="form-side">
+      <div class="form-card">
+        <h2>登录</h2>
+        <p class="muted small">使用演示账号或你自己的账号进入系统</p>
+
+        <form @submit.prevent="submit">
+          <div class="field">
+            <label>账号</label>
+            <input v-model="username" class="input" autocomplete="username" placeholder="请输入账号" />
+          </div>
+          <div class="field">
+            <label>密码</label>
+            <input v-model="password" class="input" type="password" autocomplete="current-password" placeholder="请输入密码" />
+          </div>
+
+          <div v-if="error" class="alert">{{ error }}</div>
+
+          <button class="btn primary block" type="submit" :disabled="loading">
+            {{ loading ? '登录中…' : '登录' }}
+          </button>
+        </form>
+
+        <div class="demo">
+          <div class="muted small">演示账号（密码需在首次部署后修改）</div>
+          <div class="demo-row">
+            <button type="button" class="chip" @click="fill('admin', 'admin123')">admin / 超管</button>
+            <button type="button" class="chip" @click="fill('manager', 'manager123')">manager / 主管</button>
+            <button type="button" class="chip" @click="fill('staff', 'staff123')">staff / 员工</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.login { min-height: 100vh; display: grid; grid-template-columns: 1.05fr 1fr; }
+
+.brand-side {
+  background:
+    radial-gradient(900px 500px at 10% 10%, rgba(99, 102, 241, 0.45), transparent 60%),
+    radial-gradient(700px 500px at 90% 90%, rgba(34, 211, 238, 0.25), transparent 60%),
+    #0d1220;
+  color: #e7ebf5;
+  display: flex;
+  align-items: center;
+  padding: 8vw 6vw;
+}
+.brand-inner { max-width: 460px; }
+.mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #6366f1, #22d3ee);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 22px;
+  margin-bottom: 22px;
+}
+.brand-side h1 { font-size: 32px; letter-spacing: -0.02em; }
+.lead { color: #a9b2c8; margin: 14px 0 26px; line-height: 1.8; }
+.points { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; color: #c6cddd; }
+.points li { padding-left: 18px; position: relative; }
+.points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22d3ee;
+}
+.points b { color: #fff; font-weight: 600; }
+
+.form-side { display: flex; align-items: center; justify-content: center; padding: 8vw 5vw; background: var(--bg); }
+.form-card { width: 100%; max-width: 360px; }
+.form-card h2 { font-size: 24px; margin-bottom: 4px; }
+form { margin-top: 22px; }
+.block { width: 100%; height: 40px; margin-top: 6px; }
+.alert {
+  margin: 4px 0 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--danger-weak);
+  color: var(--danger);
+  font-size: 13px;
+}
+.demo { margin-top: 26px; border-top: 1px solid var(--border); padding-top: 14px; }
+.demo-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.chip:hover { border-color: var(--primary); color: var(--primary); }
+
+@media (max-width: 860px) {
+  .login { grid-template-columns: 1fr; }
+  .brand-side { display: none; }
+  .form-side { min-height: 100vh; }
+}
+</style>

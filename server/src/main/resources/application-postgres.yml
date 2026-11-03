@@ -1,0 +1,9 @@
+# 切换到 PostgreSQL 用这个 profile：
+#   java -jar ims-server.jar --spring.profiles.active=postgres
+# PostgreSQL 方言会给标识符加双引号，ipage 会自动探测。
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/ipage_ims
+    driver-class-name: org.postgresql.Driver
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:123456}

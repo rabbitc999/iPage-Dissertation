@@ -1,0 +1,47 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: ipage-ims
+  datasource:
+    # 默认 H2 文件库，开箱即跑。切库见 application-mysql.yml / application-postgres.yml
+    url: jdbc:h2:file:./data/ims;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+  web:
+    resources:
+      # 前端构建产物放到 classpath:/static 后由同一个端口托管
+      cache:
+        period: 3600
+
+ims:
+  # 生产环境务必用环境变量覆盖：openssl rand -base64 32
+  secret: ${IMS_SECRET:ipage-ims-dev-secret-please-change-in-production}
+  token-ttl-hours: 12
+  seed: true
+  sync-schema: true
+
+  ai:
+    enabled: ${IMS_AI_ENABLED:false}
+    provider: ${IMS_AI_PROVIDER:openai}
+    base-url: ${IMS_AI_BASE_URL:https://api.deepseek.com/v1}
+    model: ${IMS_AI_MODEL:deepseek-chat}
+    api-key: ${IMS_AI_KEY:}
+    max-tokens: 2048
+    context-budget: 16000
+    allow-tools: true
+    work-dir: ./data/ai
+
+logging:
+  level:
+    root: info
+    com.rabbitc.ims: info
+    com.rabbitc.ipage: warn

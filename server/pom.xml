@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.rabbitc.ims</groupId>
+    <artifactId>ims-server</artifactId>
+    <version>1.0.0</version>
+    <name>ims-server</name>
+    <description>信息管理系统服务端：ipage 驱动 CRUD + RBAC 权限 + 可选 AI 工具</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <ipage.version>1.0.0</ipage.version>
+        <embed-ai-chat.version>1.0.0</embed-ai-chat.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- ipage 只用 JDBC 接口；DataSource 与连接池交给 Spring Boot 自动配置 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- 数据库：默认 H2 文件库，开箱即用；切换 MySQL 时改 profile 即可 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- SQL 引擎：源码已内置在 libs/ipage -->
+        <dependency>
+            <groupId>rabbitc.ipage</groupId>
+            <artifactId>ipage</artifactId>
+            <version>${ipage.version}</version>
+        </dependency>
+
+        <!--
+            聊天核心：源码已内置在 libs/embed-ai-chat（AGPL-3.0）。
+            AI 模块可通过 ims.ai.enabled=false 关闭；不需要时删掉本依赖与 ai 包即可。
+        -->
+        <dependency>
+            <groupId>io.embedai</groupId>
+            <artifactId>embed-ai-chat</artifactId>
+            <version>${embed-ai-chat.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

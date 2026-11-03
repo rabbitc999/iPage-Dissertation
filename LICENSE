@@ -1,0 +1,44 @@
+MIT License
+
+Copyright (c) 2026 ipage-ims contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+适用范围说明 / Scope
+================================================================================
+
+本 MIT 许可证适用于本仓库中的**原创代码**：
+
+  - server/         Spring Boot 服务端（com.rabbitc.ims.**）
+  - web/            Vue 3 前端（全部源码与配置）
+  - docs/           文档
+  - 根目录构建脚本、MCP 示例脚本等
+
+本 MIT 许可证**不适用于** libs/ 下的第三方内置模块，它们各自保留上游许可证：
+
+  - libs/ipage/            Apache License 2.0   （见 libs/ipage/LICENSE）
+  - libs/embed-ai-chat/    GNU AGPL-3.0         （见 libs/embed-ai-chat/LICENSE.txt）
+
+⚠️ 重要：libs/embed-ai-chat 是 AGPL-3.0 强著佐权代码，且被编译进同一个
+Spring Boot 应用。**对外分发包含它的可执行包或源码包时，整个组合作品需遵守
+AGPL-3.0**，本 MIT 声明不能覆盖这一部分。详见 THIRD-PARTY-NOTICES.md。
+
+若你需要一个"纯 MIT、可闭源商用"的发行版，请移除 libs/embed-ai-chat
+并关闭 AI 控制台模块，具体做法见 THIRD-PARTY-NOTICES.md 的「合规路径」。
