@@ -8,6 +8,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login } from '../stores/auth'
+import { brand, loadBrand } from '../stores/brand'
 import { toastError } from '../api/toast'
 
 const router = useRouter()
@@ -40,6 +41,8 @@ onMounted(() => {
   if (localStorage.getItem('ims_theme') === 'dark') {
     document.documentElement.dataset.theme = 'dark'
   }
+  // 公开接口，登录前就能取到站点名与品牌图；失败时用内置默认值
+  loadBrand()
 })
 </script>
 
@@ -47,8 +50,10 @@ onMounted(() => {
   <div class="login">
     <section class="brand-side">
       <div class="brand-inner">
-        <div class="mark">I</div>
-        <h1>信息管理系统</h1>
+        <img v-if="brand.logoUrl" :src="brand.logoUrl" class="mark mark-img" alt="logo" />
+        <div v-else class="mark">I</div>
+        <h1>{{ brand.siteName }}</h1>
+        <img v-if="brand.loginImageUrl" :src="brand.loginImageUrl" class="login-image" alt="品牌图" />
         <p class="lead">
           注解即表结构，模型即页面。<br />
           一套模型定义，自动长出建表、CRUD、权限与审计。
@@ -123,6 +128,14 @@ onMounted(() => {
   margin-bottom: 22px;
 }
 .brand-side h1 { font-size: 32px; letter-spacing: -0.02em; }
+.mark-img { object-fit: cover; }
+.login-image {
+  width: 100%;
+  max-width: 460px;
+  border-radius: 14px;
+  margin-top: 22px;
+  object-fit: cover;
+}
 .lead { color: #a9b2c8; margin: 14px 0 26px; line-height: 1.8; }
 .points { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; color: #c6cddd; }
 .points li { padding-left: 18px; position: relative; }

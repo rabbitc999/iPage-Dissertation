@@ -8,6 +8,16 @@
 > [EmbedAiChat](https://github.com/rabbitc999/EmbedAiChat) 负责内嵌 AI 控制台，
 > Spring Boot + Vue 3 负责把它们组装成一个完整产品。
 
+## 系统预览
+
+| 登录页 | 工作台 |
+| --- | --- |
+| ![登录页](images/login.png) | ![工作台](images/dashboard.png) |
+| **数据列表** | **个人设置** |
+| ![数据列表](images/employee.png) | ![个人设置](images/profile.png) |
+
+系统图像设置（站点名 / Logo / 登录页品牌图，管理员可改）见 [images/settings.png](images/settings.png)。
+
 ---
 
 ## 功能总览
@@ -21,8 +31,9 @@
 | 审计日志 | 所有写操作自动落库，工作台可查最近操作 |
 | AI 助手（可选） | 内嵌 AI 对话 + 8 个 `ims_*` 工具直接维护数据，MCP 服务与 Skill 热装配，**AI 与页面走同一套权限** |
 | 无状态认证 | HMAC 签名令牌，改密码/停用账号即时踢下线（令牌版本机制） |
-| UUID 主键 | 全部表使用 UUID v4 字符串主键，不可枚举、可离线生成、合并安全 |
+| UUID 主键 | 全部表使用 UUID v4 字符串主键（引擎在插入时自动生成），不可枚举、可离线生成、合并安全 |
 | 密码安全 | PBKDF2-HMAC-SHA256（210,000 次迭代）+ 每用户随机盐 + 登录时自动升级旧哈希 |
+| 文件与图像 | `/api/files` 上传/下载/删除（内容落 BLOB，上限 10MB）；IMAGE 字段类型支持相对链接、绝对链接、`data:` 内联与二进制直存四种用法；管理员头像、站点 Logo / 登录页品牌图可视化配置 |
 
 ## 技术栈
 

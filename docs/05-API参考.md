@@ -258,7 +258,56 @@ PUT /api/views/{modelKey}
 
 ---
 
-## 5. 角色与权限
+## 5. 文件与图像
+
+文件内容整体落库（`sys_file` 的 BLOB 列），上限 10MB。`/raw` 是公开地址（`<img>` 标签带不上
+Authorization 头，头像、品牌图必须裸地址可访问），文件主键是不可猜测的 UUID。
+
+```http
+POST /api/files                          # 登录用户可用，multipart 字段名固定 file
+→ {"id":"...","name":"a.png","contentType":"image/png","size":70,"url":"/api/files/<id>/raw"}
+
+GET  /api/files/{id}/raw                 # 公开，内联（Content-Disposition: inline），可缓存 24h
+GET  /api/files/{id}/download            # 需登录，附件下载
+DELETE /api/files/{id}                   # 上传者本人或管理员
+```
+
+`POST` 返回的 `url` 可直接填进 IMAGE 类型字段。删除仅限上传者本人或管理员；内容不可变，没有更新接口。
+
+个人头像：
+
+```http
+POST   /api/profile/avatar               # multipart 字段 file，仅图片（image/*），上限 5MB
+→ {"avatarUrl":"/api/files/<id>/raw"}
+DELETE /api/profile/avatar               # 只清引用，不删文件记录
+→ {"avatarUrl":""}
+```
+
+头像地址同步出现在 `/api/auth/me` 的 `avatar` 字段与用户行数据里。
+
+---
+
+## 6. 系统图像设置
+
+站点名、Logo、登录页品牌图，键白名单：`siteName`（默认 `iPage 管理系统`）、`logoUrl`、`loginImageUrl`。
+
+```http
+GET /api/settings                        # 需要 system:setting:manage 权限点
+→ {"siteName":"iPage 管理系统","logoUrl":"","loginImageUrl":""}
+
+PUT /api/settings                        # 需要 system:setting:manage；只接受白名单键，值 ≤255 字符
+{ "siteName": "新名字", "logoUrl": "/api/files/<id>/raw" }
+→ 完整键值表
+
+GET /api/brand                           # 公开（登录页用），只返回白名单键与默认值
+→ {"siteName":"...","logoUrl":"...","loginImageUrl":"..."}
+```
+
+图像值三种来源均可：相对链接（`/api/files/<id>/raw`）、绝对链接、`data:` 内联 URI。
+
+---
+
+## 7. 角色与权限
 
 写操作需要 `system:role:manage`；读操作需要 `ADMIN` 等级。
 
@@ -287,7 +336,7 @@ PUT    /api/roles/{id}/permissions
 
 ---
 
-## 6. 工作台统计
+## 8. 工作台统计
 
 ```http
 GET /api/stats
@@ -305,9 +354,9 @@ GET /api/stats
 
 ---
 
-## 7. AI
+## 9. AI
 
-### 7.1 状态
+### 9.1 状态
 
 ```http
 GET /api/ai/status
@@ -322,7 +371,7 @@ GET /api/ai/status
 ```
 启用后 `tools` 会列出 8 个 `ims_*` 工具与已挂载的 MCP 工具。
 
-### 7.2 对话
+### 9.2 对话
 
 ```http
 POST /api/ai/chat          # 需要 ai:use
@@ -337,7 +386,7 @@ POST /api/ai/chat          # 需要 ai:use
 会话按用户隔离；`allowTools = false` 时本轮只做纯文本回答，不调用工具。
 模型调用失败返回 `502 {"message":"模型调用失败：..."}`。
 
-### 7.3 历史 / 重置 / 重载
+### 9.3 历史 / 重置 / 重载
 
 ```http
 GET  /api/ai/history     → {"version":1,"messages":[...]}   # 当前用户会话归档
@@ -347,7 +396,7 @@ POST /api/ai/reload      → 重新装配 MCP 与 Skill（需要 ai:manage）
 
 ---
 
-## 8. 用 curl 快速联调
+## 10. 用 curl 快速联调
 
 ```bash
 BASE=http://127.0.0.1:8080

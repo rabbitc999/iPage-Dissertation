@@ -53,15 +53,16 @@ String statement = "SELECT " + dialect.quote(meta.idColumn())
 sql.query(new SqlStatement(statement, List.of(pattern)), rs -> rs.getObject(1));
 ```
 
-### 2.2 主键是 UUID 字符串，插入前必须由应用侧赋值
-所有表的主键都是 `String`（UUID v4）。**iPage 只对整数主键做自增**，所以：
+### 2.2 主键是 UUID 字符串，由引擎在插入时自动生成
+所有表的主键都是 `String`（UUID v4）。iPage 的 `insert` 会检查 String 主键：
+**为空时自动生成 UUID，已有值一律保留**；整数主键仍走数据库自增。所以普通业务代码直接插入即可：
 
 ```java
-Ids.assignIfAbsent(entity);   // 必须在 sql.insert(...) 之前调用
-sql.insert(entity);
+sql.insert(entity);   // 主键为空时引擎自动补 UUID
 ```
 
-漏掉这一步的症状：`NULL not allowed for column "XXX_ID"`。
+只有两种情况需要关心主键：**关联表装配**等场景想显式指定主键（赋好值再插入即可），
+以及**读取刚插入行的主键**（插入后直接取 `entity.id`，它已被填上）。
 同理，所有外键字段（`deptId`、`createBy`、`assigneeId`…）都是 `String`，不要写 `Long`。
 
 ### 2.3 主键字段不要加 `fixed = true`
@@ -367,7 +368,7 @@ curl -s localhost:8080/api/nav -H "Authorization: Bearer $TOKEN"   # 新模型�
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| `NULL not allowed for column "XXX_ID"` | 插入前没 `Ids.assignIfAbsent` | 见 2.2 |
+| `NULL not allowed for column "XXX_ID"` | 主键加了 `fixed = true`，引擎跳过自动补 UUID | 见 2.2 |
 | `Method ... not applicable` / `Object 无法转换为 X` | `sql.selectList(Query)` 在 `for` 里被推断成 `Object` | 写成 `sql.<T>selectList(...)` |
 | `Unhandled exception: CheckerException` | 受检异常没捕获 | 见 2.8 |
 | 新字段不显示 | 前端读了缓存 schema，或字段 `look = false` | 刷新/重登录；检查注解 |

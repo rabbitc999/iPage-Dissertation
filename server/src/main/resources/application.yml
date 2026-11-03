@@ -16,6 +16,10 @@ spring:
       write-dates-as-timestamps: false
     deserialization:
       fail-on-unknown-properties: false
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
   web:
     resources:
       # 前端构建产物放到 classpath:/static 后由同一个端口托管

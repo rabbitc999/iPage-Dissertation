@@ -15,7 +15,6 @@ import com.rabbitc.ims.model.RolePermission;
 import com.rabbitc.ims.model.UserRole;
 import com.rabbitc.ims.security.RequireLevel;
 import com.rabbitc.ims.security.RequirePermission;
-import com.rabbitc.ims.support.Ids;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -123,8 +122,6 @@ public class RoleController {
         role.dataScope = parseScope(request.dataScope());
         role.builtin = Boolean.FALSE;
         role.remark = request.remark();
-        // 主键是 UUID，插入前必须由应用侧赋值
-        Ids.assignIfAbsent(role);
         try {
             sql.insert(role);
         } catch (com.rabbitc.ipage.exception.CheckerException e) {
@@ -216,7 +213,6 @@ public class RoleController {
             List<Permission> existing = tx.selectList(Query.of(Permission.class).in("id", ids));
             for (Permission permission : existing) {
                 RolePermission link = new RolePermission();
-                Ids.assignIfAbsent(link);
                 link.roleId = id;
                 link.permissionId = permission.id;
                 tx.insert(link);

@@ -81,6 +81,39 @@ export async function api(path, options = {}) {
 }
 
 /**
+ * 上传文件（multipart/form-data）。
+ * <p>
+ * 注意不要手动设置 Content-Type：浏览器需要自己生成带 boundary 的头。
+ *
+ * @param {string} path 以 / 开头的路径，会自动加 /api 前缀
+ * @param {File}   file 用户选择的文件
+ * @returns {Promise<any>} 响应体（含 id/name/url 等字段）
+ */
+export async function upload(path, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const headers = { Accept: 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let response
+  try {
+    response = await fetch(new URL('/api' + path, window.location.origin), {
+      method: 'POST',
+      headers,
+      body: form
+    })
+  } catch (error) {
+    throw new ApiError('无法连接服务端，请确认后端已启动', 0)
+  }
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new ApiError(payload?.message || `上传失败（${response.status}）`, response.status)
+  }
+  return payload
+}
+
+/**
  * 把对象拼成查询串，空值自动忽略。
  * @param {object} params 参数
  * @returns {string} 查询串

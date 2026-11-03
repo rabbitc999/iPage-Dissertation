@@ -8,6 +8,8 @@
  * 注意：主键与外键都是 UUID 字符串，取值时不要做 Number 转换（会变成 NaN）。
  */
 import { computed, reactive, watch } from 'vue'
+import { upload } from '../api/http'
+import { toastError } from '../api/toast'
 
 const props = defineProps({
   schema: { type: Object, required: true },
@@ -19,10 +21,33 @@ const emit = defineEmits(['submit', 'cancel'])
 
 const values = reactive({})
 const errors = reactive({})
+/** IMAGE 字段的隐藏文件选择框，按字段名索引。 */
+const imageInputs = reactive({})
 
 const fields = computed(() => (props.schema?.fields || []).filter((field) => field.form))
 
 const title = computed(() => (props.mode === 'create' ? `新增${props.schema.name}` : `编辑${props.schema.name}`))
+
+/** 触发某个 IMAGE 字段的文件选择框。 */
+function pickImage(name) {
+  imageInputs[name]?.click()
+}
+
+/**
+ * 上传图片并把返回的相对链接写进字段值。
+ * <p>IMAGE 字段也接受手填的绝对链接与 data: URI，上传只是快捷方式。
+ */
+async function onImageChange(event, name) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  try {
+    const result = await upload('/files', file)
+    values[name] = result.url
+  } catch (error) {
+    toastError(error)
+  }
+}
 
 function init() {
   for (const key of Object.keys(values)) delete values[key]
@@ -128,7 +153,7 @@ function submit() {
             v-for="field in fields"
             :key="field.name"
             class="field"
-            :class="{ wide: field.type === 'MULTI_SELECT' || field.maxLength > 120 }"
+            :class="{ wide: field.type === 'MULTI_SELECT' || field.type === 'IMAGE' || field.maxLength > 120 }"
           >
             <label>
               {{ field.text }}
@@ -163,6 +188,38 @@ function submit() {
               class="textarea"
               :maxlength="field.maxLength > 0 ? field.maxLength : undefined"
             ></textarea>
+
+            <div v-else-if="field.type === 'IMAGE'" class="image-field">
+              <img
+                v-if="values[field.name]"
+                :src="values[field.name]"
+                class="image-preview"
+                alt="预览"
+              />
+              <input
+                v-model="values[field.name]"
+                class="input"
+                placeholder="图片链接（相对 / 绝对 / data: 均可），或点击上传"
+              />
+              <div class="image-actions">
+                <button class="btn ghost sm" type="button" @click="pickImage(field.name)">上传图片</button>
+                <button
+                  v-if="values[field.name]"
+                  class="btn ghost sm"
+                  type="button"
+                  @click="values[field.name] = ''"
+                >
+                  清除
+                </button>
+              </div>
+              <input
+                :ref="(el) => (imageInputs[field.name] = el)"
+                type="file"
+                accept="image/*"
+                class="visually-hidden"
+                @change="(e) => onImageChange(e, field.name)"
+              />
+            </div>
 
             <input
               v-else-if="field.type === 'PASSWORD'"
@@ -222,6 +279,17 @@ function submit() {
   gap: 0 16px;
 }
 .field.wide { grid-column: 1 / -1; }
+.image-field { display: flex; flex-direction: column; gap: 8px; }
+.image-preview {
+  width: 120px;
+  height: 120px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+  background: var(--panel);
+}
+.image-actions { display: flex; gap: 6px; }
+.visually-hidden { display: none; }
 .switch { display: inline-flex; align-items: center; gap: 8px; height: 34px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {

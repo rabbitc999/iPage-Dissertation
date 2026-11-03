@@ -14,6 +14,7 @@ import java.util.Set;
  * @param id          用户主键（UUID）
  * @param username    登录账号
  * @param name        姓名
+ * @param avatar      头像地址（可为 {@code null}）
  * @param level       权限等级，取所有角色等级的最大值
  * @param permissions 权限点编码集合
  * @param dataScope   数据范围，取所有角色中最宽的那个
@@ -22,8 +23,9 @@ import java.util.Set;
  * @author 小兔糖糖OvO
  * @since 1.0
  */
-public record LoginUser(String id, String username, String name, int level, Set<String> permissions,
-                        DataScope dataScope, String deptId, int tokenVersion) {
+public record LoginUser(String id, String username, String name, String avatar, int level,
+                        Set<String> permissions, DataScope dataScope, String deptId,
+                        int tokenVersion) {
 
     /**
      * 是否拥有某个权限点；超级管理员默认拥有一切。

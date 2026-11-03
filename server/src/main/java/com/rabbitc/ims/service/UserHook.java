@@ -12,7 +12,6 @@ import com.rabbitc.ims.model.User;
 import com.rabbitc.ims.model.UserRole;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.security.PasswordHasher;
-import com.rabbitc.ims.support.Ids;
 import com.rabbitc.ims.web.ApiException;
 import org.springframework.stereotype.Component;
 
@@ -157,8 +156,6 @@ public class UserHook implements ModelHook {
         List<Role> roles = sql.selectList(Query.of(Role.class).in("id", roleIds));
         for (Role role : roles) {
             UserRole link = new UserRole();
-            // 关联表主键同样是 UUID，由应用侧生成
-            Ids.assignIfAbsent(link);
             link.userId = target.id;
             link.roleId = role.id;
             try {

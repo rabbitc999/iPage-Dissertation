@@ -111,6 +111,7 @@ public class AuthController {
         view.put("id", user.id());
         view.put("username", user.username());
         view.put("name", user.name());
+        view.put("avatar", user.avatar());
         view.put("level", user.level());
         view.put("dataScope", user.dataScope().name());
         view.put("deptId", user.deptId());

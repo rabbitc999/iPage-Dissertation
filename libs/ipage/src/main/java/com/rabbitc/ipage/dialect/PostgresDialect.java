@@ -87,6 +87,10 @@ public final class PostgresDialect implements Dialect {
         if (type == BigDecimal.class) {
             return "NUMERIC(18, 4)";
         }
+        if (type == byte[].class) {
+            // FieldType.IMAGE 的二进制形态：BYTEA 无长度上限，由应用侧控制大小
+            return "BYTEA";
+        }
         if (type == BigInteger.class) {
             return "NUMERIC(20, 0)";
         }

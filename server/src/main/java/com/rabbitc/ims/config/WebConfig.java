@@ -33,7 +33,11 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authInterceptor)
                 .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/auth/login", "/api/health");
+                .excludePathPatterns("/api/auth/login", "/api/health",
+                        // 文件内联地址必须公开：<img> 标签带不上 Authorization 头
+                        "/api/files/*/raw",
+                        // 品牌信息公开给登录页使用
+                        "/api/brand");
     }
 
     @Override

@@ -409,6 +409,13 @@ onMounted(bootstrap)
                 :class="{ wrap: field.type === 'STRING' && field.maxLength > 120 }"
               >
                 <span v-if="field.type === 'ENUM'" class="badge grey">{{ cell(row, field) }}</span>
+                <img
+                  v-else-if="field.type === 'IMAGE' && row[field.name]"
+                  :src="row[field.name]"
+                  class="cell-img"
+                  alt=""
+                />
+                <span v-else-if="field.type === 'IMAGE'" class="muted">—</span>
                 <span v-else>{{ cell(row, field) }}</span>
               </td>
               <td v-if="canEdit || canDelete">
@@ -487,6 +494,7 @@ onMounted(bootstrap)
 .pager { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); }
 .error-card { padding: 18px; color: var(--danger); background: var(--danger-weak); border-color: transparent; }
 .danger-text { color: var(--danger); }
+.cell-img { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); }
 .modal.narrow { max-width: 420px; }
 .check-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 </style>

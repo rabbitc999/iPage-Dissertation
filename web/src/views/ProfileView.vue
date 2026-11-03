@@ -6,13 +6,54 @@
  * 否则下一个请求就会 401。
  */
 import { reactive, ref } from 'vue'
-import { auth, changePassword } from '../stores/auth'
+import { auth, changePassword, loadMe } from '../stores/auth'
+import { api, upload } from '../api/http'
 import { toast, toastError } from '../api/toast'
 
 const form = reactive({ oldPassword: '', newPassword: '', confirm: '' })
 const saving = ref(false)
+const uploading = ref(false)
+const fileInput = ref(null)
 
 const scopeLabels = { ALL: '全部数据', DEPT: '本部门', SELF: '仅本人' }
+
+/** 触发文件选择框。 */
+function pickAvatar() {
+  fileInput.value?.click()
+}
+
+/**
+ * 上传头像并刷新当前用户快照，让侧边栏头像立即生效。
+ */
+async function onAvatarChange(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  uploading.value = true
+  try {
+    await upload('/profile/avatar', file)
+    await loadMe()
+    toast('头像已更新', 'success')
+  } catch (e) {
+    toastError(e)
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** 清除头像（保留历史文件记录，只把引用置空）。 */
+async function clearAvatar() {
+  uploading.value = true
+  try {
+    await api('/profile/avatar', { method: 'DELETE' })
+    await loadMe()
+    toast('头像已清除', 'success')
+  } catch (e) {
+    toastError(e)
+  } finally {
+    uploading.value = false
+  }
+}
 
 function levelText(level) {
   if (level >= 4) return '超级管理员'
@@ -49,7 +90,19 @@ async function submit() {
 <template>
   <div class="profile">
     <div class="card info">
-      <div class="avatar">{{ (auth.user?.name || '?').slice(0, 1) }}</div>
+      <div class="avatar-wrap">
+        <img v-if="auth.user?.avatar" :src="auth.user.avatar" class="avatar avatar-img" alt="头像" />
+        <div v-else class="avatar">{{ (auth.user?.name || '?').slice(0, 1) }}</div>
+        <input ref="fileInput" type="file" accept="image/*" class="visually-hidden" @change="onAvatarChange" />
+        <div class="avatar-actions">
+          <button class="btn ghost sm" :disabled="uploading" @click="pickAvatar">
+            {{ uploading ? '处理中…' : '更换头像' }}
+          </button>
+          <button v-if="auth.user?.avatar" class="btn ghost sm" :disabled="uploading" @click="clearAvatar">
+            清除
+          </button>
+        </div>
+      </div>
       <div>
         <h2>{{ auth.user?.name }}</h2>
         <p class="muted small">{{ auth.user?.username }}</p>
@@ -98,6 +151,9 @@ async function submit() {
 <style scoped>
 .profile { display: grid; gap: 14px; max-width: 780px; }
 .info { display: flex; gap: 18px; align-items: center; padding: 20px; }
+.avatar-wrap { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.avatar-actions { display: flex; gap: 6px; }
+.visually-hidden { display: none; }
 .avatar {
   width: 58px;
   height: 58px;
@@ -109,6 +165,7 @@ async function submit() {
   font-size: 22px;
   font-weight: 700;
 }
+.avatar-img { object-fit: cover; }
 .info h2 { font-size: 20px; }
 .chips { margin-top: 8px; }
 .panel { padding: 18px 20px; }

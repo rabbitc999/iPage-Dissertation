@@ -66,6 +66,10 @@ public final class MySQLDialect implements Dialect {
         if (type == BigDecimal.class) {
             return "DECIMAL(18, 4)";
         }
+        if (type == byte[].class) {
+            // FieldType.IMAGE 的二进制形态：MEDIUMBLOB 上限 16MB，够存图像又不会撑爆 max_allowed_packet
+            return "MEDIUMBLOB";
+        }
         if (type == BigInteger.class) {
             return "DECIMAL(20, 0)";
         }

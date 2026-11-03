@@ -85,6 +85,15 @@ public class User {
     @ModelField(column = "created_at", type = FieldType.DATE, text = "创建时间", order = 11, look = false)
     public LocalDateTime createdAt;
 
+    /**
+     * 头像图像引用。IMAGE 类型的 String 形态，三种来源都兼容：
+     * 相对链接（{@code /api/files/<id>/raw}，走本系统文件接口）、
+     * 绝对链接（{@code https://...}）、以及 {@code data:image/...;base64,} 内联 URI。
+     * 由「个人中心 → 头像」接口写入，通用 CRUD 也可以改（管理员换头像的场景）。
+     */
+    @ModelField(column = "avatar", type = FieldType.IMAGE, text = "头像", order = 12)
+    public String avatar;
+
     /** 明文密码，只在表单提交时出现，不落库。 */
     public String password;
 

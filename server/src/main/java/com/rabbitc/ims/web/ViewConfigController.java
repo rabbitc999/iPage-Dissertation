@@ -7,7 +7,6 @@ import com.rabbitc.ipage.sql.Query;
 import com.rabbitc.ims.model.ViewConfig;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.security.UserContext;
-import com.rabbitc.ims.support.Ids;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -99,8 +98,6 @@ public class ViewConfigController {
                 sql.update(config);
             } else {
                 ViewConfig config = new ViewConfig();
-                // 主键是 UUID，插入前由应用侧赋值
-                Ids.assignIfAbsent(config);
                 config.ownerId = user.id();
                 config.modelKey = modelKey;
                 config.config = json;

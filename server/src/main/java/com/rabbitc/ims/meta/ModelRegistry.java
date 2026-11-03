@@ -32,10 +32,12 @@ public class ModelRegistry {
      * 不暴露为通用 CRUD 入口的模型：
      * <ul>
      *     <li>两张关联表由用户/角色保存逻辑统一维护，直接增删会破坏角色装配；</li>
-     *     <li>界面配置有独立接口，需要按「归属用户」做行级隔离。</li>
+     *     <li>界面配置有独立接口，需要按「归属用户」做行级隔离；</li>
+     *     <li>文件记录的内容列是大字段，统一走 /api/files 接口，避免误把字节读进列表。</li>
      * </ul>
      */
-    private static final Set<String> NOT_EXPOSED = Set.of("userRole", "rolePermission", "viewConfig");
+    private static final Set<String> NOT_EXPOSED =
+            Set.of("userRole", "rolePermission", "viewConfig", "sysFile", "sysSetting");
 
     private final Map<String, Class<?>> models = new LinkedHashMap<>();
 

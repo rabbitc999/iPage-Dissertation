@@ -35,6 +35,10 @@ public interface Dialect {
 
         @Override
         public String columnType(Class<?> javaType) {
+            if (javaType == byte[].class) {
+                // 图像二进制（FieldType.IMAGE + byte[]）的兜底类型，具体方言各自覆写
+                return "BLOB";
+            }
             return javaType == null ? "VARCHAR(255)" : "VARCHAR(255)";
         }
 

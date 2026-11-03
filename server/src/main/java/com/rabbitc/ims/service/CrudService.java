@@ -49,7 +49,7 @@ import java.util.Set;
  *     <li>写操作放在事务里，实体、关联表、审计日志一起提交。</li>
  * </ul>
  * <b>主键约定</b>：所有模型的主键都是 UUID 字符串（见 {@link Ids}）。由于主键不再是
- * 数据库自增的整数，新增时必须先在应用侧调用 {@link Ids#assignIfAbsent(Object)}
+ * 数据库自增的整数，String 主键由 ipage 在 insert 时自动补 UUID
  * 把主键写进实体，否则插入会因主键为空而失败。
  *
  * @author 小兔糖糖OvO
@@ -176,8 +176,7 @@ public class CrudService {
         Object entity = meta.newInstance();
         applyBody(meta, entity, body, user, true);
         fillCreateDefaults(meta, entity, user);
-        // 主键由应用侧生成：String 主键不会触发数据库自增，必须在 insert 之前赋值
-        Ids.assignIfAbsent(entity);
+        // String 主键不会触发数据库自增，ipage 在 insert 时自动补 UUID
         forEachHook(meta, hook -> hook.beforeCreate(meta, entity, body, user));
 
         sql.transaction(tx -> {

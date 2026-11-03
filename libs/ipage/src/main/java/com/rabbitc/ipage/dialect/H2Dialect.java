@@ -70,6 +70,10 @@ public final class H2Dialect implements Dialect {
         if (type == BigDecimal.class) {
             return "NUMERIC(18, 4)";
         }
+        if (type == byte[].class) {
+            // FieldType.IMAGE 的二进制形态：H2 的 BLOB 最大 2GB，足够存头像与截图
+            return "BLOB";
+        }
         if (type == BigInteger.class) {
             return "NUMERIC(20, 0)";
         }

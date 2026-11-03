@@ -534,6 +534,9 @@ public final class ModelMeta {
             case NUMBER, DATE -> List.of(OperatorType.EQ, OperatorType.GT, OperatorType.LT,
                     OperatorType.GTE, OperatorType.LTE, OperatorType.NE);
             case MODEL_ID, ASSOCIATION_ID -> List.of(OperatorType.EQ, OperatorType.NE);
+            // 图像不做模糊匹配：二进制列上 LIKE 无意义，引用列交给应用层自己拼完整 URL 再查
+            case IMAGE -> List.of(OperatorType.EQ, OperatorType.NE,
+                    OperatorType.IS_NULL, OperatorType.IS_NOT_NULL);
             default -> List.of(OperatorType.EQ, OperatorType.LIKE, OperatorType.STARTS_WITH,
                     OperatorType.ENDS_WITH, OperatorType.IS_NULL, OperatorType.IS_NOT_NULL);
         };

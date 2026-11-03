@@ -9,6 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/http'
 import { auth, can, logout } from '../stores/auth'
+import { brand, loadBrand } from '../stores/brand'
 import { toastError } from '../api/toast'
 
 const route = useRoute()
@@ -73,16 +74,20 @@ async function signOut() {
   router.push('/login')
 }
 
-onMounted(loadNav)
+onMounted(() => {
+  loadNav()
+  loadBrand()
+})
 </script>
 
 <template>
   <div class="shell">
     <aside class="sidebar" :class="{ open }">
       <div class="brand">
-        <div class="logo">I</div>
+        <img v-if="brand.logoUrl" :src="brand.logoUrl" class="logo logo-img" alt="logo" />
+        <div v-else class="logo">I</div>
         <div>
-          <div class="brand-name">信息管理系统</div>
+          <div class="brand-name">{{ brand.siteName }}</div>
           <div class="brand-sub">ipage · Spring Boot · Vue</div>
         </div>
       </div>
@@ -113,6 +118,15 @@ onMounted(loadNav)
             <span class="dot">权</span>
             <span class="grow">角色与权限</span>
           </router-link>
+          <router-link
+            v-if="can('system:setting:manage')"
+            to="/settings"
+            class="nav-item"
+            @click="open = false"
+          >
+            <span class="dot">图</span>
+            <span class="grow">图像设置</span>
+          </router-link>
         </div>
 
         <div v-if="can('ai:use')" class="group">
@@ -126,7 +140,8 @@ onMounted(loadNav)
 
       <div class="side-foot">
         <div class="who">
-          <div class="avatar">{{ (auth.user?.name || '?').slice(0, 1) }}</div>
+          <img v-if="auth.user?.avatar" :src="auth.user.avatar" class="avatar avatar-img" alt="头像" />
+          <div v-else class="avatar">{{ (auth.user?.name || '?').slice(0, 1) }}</div>
           <div class="grow">
             <div class="who-name">{{ auth.user?.name }}</div>
             <div class="who-role">{{ levelText }} · {{ scopeText }}</div>
@@ -198,6 +213,7 @@ onMounted(loadNav)
 }
 .brand-name { color: #fff; font-weight: 650; font-size: 14px; }
 .brand-sub { font-size: 11px; color: #7d879f; }
+.logo-img { object-fit: cover; }
 
 .nav { flex: 1; overflow: auto; }
 .group { margin-top: 14px; }
@@ -249,6 +265,7 @@ onMounted(loadNav)
 }
 .who-name { color: #eef1f8; font-size: 13px; }
 .who-role { color: #7d879f; font-size: 11px; }
+.avatar-img { object-fit: cover; }
 .signout {
   width: 100%;
   margin-top: 6px;

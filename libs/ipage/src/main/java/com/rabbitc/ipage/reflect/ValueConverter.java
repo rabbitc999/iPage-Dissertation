@@ -246,6 +246,10 @@ public final class ValueConverter {
         if (type.isInstance(value)) {
             return value;
         }
+        if (type == byte[].class) {
+            // FieldType.IMAGE 的二进制形态：各驱动返回形态不一（byte[] / Blob / 十六进制串）
+            return bytesFromDatabase(value);
+        }
         if (type == String.class) {
             return String.valueOf(value);
         }
@@ -339,6 +343,36 @@ public final class ValueConverter {
 
     private interface Parser<T> {
         T parse(String value) throws CheckerException;
+    }
+
+    /**
+     * 把数据库返回的图像二进制统一收成 {@code byte[]}。
+     * <p>
+     * H2 与 MySQL 的 BLOB 通常直接给 {@code byte[]}；个别驱动（及 PG 的旧驱动路径）
+     * 会给 {@link java.sql.Blob} 或十六进制文本，这里一并兜住。
+     *
+     * @param value 驱动原始值
+     * @return 图像字节；形态不认识时返回 {@code null}
+     */
+    private static Object bytesFromDatabase(Object value) {
+        if (value instanceof byte[] bytes) {
+            return bytes;
+        }
+        if (value instanceof java.sql.Blob blob) {
+            try {
+                return blob.getBytes(1, (int) blob.length());
+            } catch (java.sql.SQLException e) {
+                throw new ModelDefinitionException("读取图像 BLOB 失败", e);
+            }
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return java.util.Base64.getDecoder().decode(text);
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static Object parseQuietly(Object value, Parser<?> parser) {

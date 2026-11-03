@@ -20,6 +20,7 @@ const routes = [
       { path: 'dashboard', name: 'dashboard', component: () => import('./views/DashboardView.vue'), meta: { title: '工作台' } },
       { path: 'm/:key', name: 'model', component: () => import('./views/ModelView.vue'), meta: { title: '数据' } },
       { path: 'permissions', name: 'permissions', component: () => import('./views/PermissionsView.vue'), meta: { title: '角色与权限' } },
+      { path: 'settings', name: 'settings', component: () => import('./views/SettingsView.vue'), meta: { title: '图像设置' } },
       { path: 'ai', name: 'ai', component: () => import('./views/AiView.vue'), meta: { title: 'AI 助手' } },
       { path: 'profile', name: 'profile', component: () => import('./views/ProfileView.vue'), meta: { title: '个人设置' } }
     ]

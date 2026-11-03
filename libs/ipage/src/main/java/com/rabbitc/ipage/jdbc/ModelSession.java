@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,6 +50,10 @@ import java.util.regex.Pattern;
  *     <li><b>事务</b>：{@link #transaction}，事务内复用同一个连接。</li>
  * </ol>
  * 本类不依赖 Spring、Servlet 或任何连接池，运行时只用到 JDK 与 SLF4J 门面。
+ *
+ * <p><b>本文件已被 iPage-IMS 修改（2026-11-04）：</b>{@code insert} 在新增前对
+ * String 主键自动补 UUID（{@link #assignIdentifier}），整数主键仍走数据库自增；
+ * 上游仓库见 https://github.com/rabbitc999/iPage。
  *
  * @author 小兔糖糖OvO
  * @version 1.0
@@ -623,6 +628,7 @@ public final class ModelSession {
         if (validating) {
             ModelValidator.validate(entity, operation == null ? CheckerType.ADD : operation, before);
         }
+        assignIdentifier(meta, entity);
         Map<String, Object> values = writableValues(meta, entity, true);
         SqlStatement statement = SqlStatement.insert(meta, values, dialect);
         String sql = statement.sql();
@@ -821,6 +827,26 @@ public final class ModelSession {
      * @param inserting 是否新增；新增时主键为空则不写入，交给自增
      * @return 列名到值的映射，保持字段声明顺序
      */
+    /**
+     * 新增前补主键：String 主键（UUID 约定）为空时生成一个随机 UUID，
+     * 整数主键交给数据库自增，已有主键一律保留。
+     * <p>
+     * String 主键没有「数据库自增」可用，若不在应用侧生成，插入会因主键为空而失败。
+     * 生成放在校验之后、组装写入值之前，这样自增回读逻辑（{@code needKeys}）不受影响。
+     *
+     * @param meta   元数据
+     * @param entity 实体
+     */
+    private static void assignIdentifier(ModelMeta meta, Object entity) {
+        if (meta.idJavaType() != String.class) {
+            return; // 整数主键走数据库自增，不做处理
+        }
+        Object current = meta.idValue(entity);
+        if (current == null || String.valueOf(current).isBlank()) {
+            meta.idField().write(entity, UUID.randomUUID().toString());
+        }
+    }
+
     private static Map<String, Object> writableValues(ModelMeta meta, Object entity, boolean inserting) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (FieldDescriptor field : meta.columnFields()) {

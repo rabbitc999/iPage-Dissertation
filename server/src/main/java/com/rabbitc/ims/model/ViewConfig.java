@@ -25,8 +25,8 @@ public class ViewConfig {
     @ModelField(column = "view_id", type = FieldType.MODEL_ID, text = "ID", order = 1)
     public String id;
 
-    /** 归属用户。 */
-    @ModelField(column = "owner_id", type = FieldType.NUMBER, text = "用户", order = 2)
+    /** 归属用户（UUID）。 */
+    @ModelField(column = "owner_id", text = "用户", order = 2)
     public String ownerId;
 
     /** 模型 key。 */

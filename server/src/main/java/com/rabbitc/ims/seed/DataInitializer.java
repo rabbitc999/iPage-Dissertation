@@ -26,7 +26,6 @@ import com.rabbitc.ims.model.Ticket;
 import com.rabbitc.ims.model.User;
 import com.rabbitc.ims.model.UserRole;
 import com.rabbitc.ims.security.PasswordHasher;
-import com.rabbitc.ims.support.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -127,6 +126,7 @@ public class DataInitializer implements ApplicationRunner {
         map.put("system:user:manage", permission("system:user:manage", "用户管理", "系统管理", 1));
         map.put("system:role:manage", permission("system:role:manage", "角色与权限", "系统管理", 2));
         map.put("system:audit:view", permission("system:audit:view", "审计日志", "系统管理", 3));
+        map.put("system:setting:manage", permission("system:setting:manage", "系统图像设置", "系统管理", 4));
         map.put("ai:use", permission("ai:use", "使用 AI 助手", "智能助手", 1));
         map.put("ai:manage", permission("ai:manage", "管理 MCP 与 Skill", "智能助手", 2));
         return map;
@@ -370,8 +370,7 @@ public class DataInitializer implements ApplicationRunner {
     }
 
     private void insert(Object entity) {
-        // 主键是 UUID，种子数据也必须由应用侧生成
-        Ids.assignIfAbsent(entity);
+        // String 主键由 ipage 在 insert 时自动补 UUID
         try {
             sql.insert(entity);
         } catch (Exception e) {
