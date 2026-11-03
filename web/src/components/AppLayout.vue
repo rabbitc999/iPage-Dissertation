@@ -215,7 +215,14 @@ onMounted(() => {
 .brand-sub { font-size: 11px; color: #7d879f; }
 .logo-img { object-fit: cover; }
 
-.nav { flex: 1; overflow: auto; }
+/* 菜单区可滚动但隐藏滚动条：视觉上保持干净，滚轮/触摸仍可滚动 */
+.nav {
+  flex: 1;
+  overflow: auto;
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* 旧版 Edge/IE */
+}
+.nav::-webkit-scrollbar { display: none; }
 .group { margin-top: 14px; }
 .group-title {
   padding: 0 10px 6px;

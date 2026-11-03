@@ -1,1 +1,0 @@
-import{B as r,z as l}from"./index-C74UeSi1.js";const o=r({siteName:"信息管理系统",logoUrl:"",loginImageUrl:"",loaded:!1});async function i(){try{const e=await l("/brand");e!=null&&e.siteName&&(o.siteName=e.siteName),o.logoUrl=(e==null?void 0:e.logoUrl)||"",o.loginImageUrl=(e==null?void 0:e.loginImageUrl)||"",o.loaded=!0}catch{}}export{o as b,i as l};
