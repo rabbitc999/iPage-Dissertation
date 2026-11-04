@@ -48,7 +48,7 @@ public class AiController {
      * @param allowTools 是否允许模型调用工具
      */
     public record ChatRequest(String message, Boolean allowTools, String model, String runId,
-                              java.util.List<String> attachments, Boolean allowFileWrites, ToolAccess toolAccess) {
+                              java.util.List<String> attachments, Boolean allowFileWrites, ToolAccess toolAccess, Boolean deepThinking) {
     }
 
     /**
@@ -72,7 +72,7 @@ public class AiController {
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         boolean allowTools = request.allowTools() == null || request.allowTools();
         return manager.chat(UserContext.require(), request.message(), allowTools, request.model(),
-                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), event -> {});
+                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), Boolean.TRUE.equals(request.deepThinking()), event -> {});
     }
 
     /**
@@ -98,7 +98,7 @@ public class AiController {
         };
         try {
             manager.chat(user, request.message(), request.allowTools() == null || request.allowTools(),
-                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), emit);
+                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), Boolean.TRUE.equals(request.deepThinking()), emit);
         } catch (Exception error) {
             if (!writer.checkError()) {
                 if (error instanceof AiEngineManager.ModelFailure failure) {

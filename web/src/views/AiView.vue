@@ -24,6 +24,7 @@ const input = ref('')
 const allowTools = ref(true)
 const toolAccess = ref('READ_ONLY')
 const sending = ref(false)
+const deepThinking = ref(false)
 const chatBox = ref(null)
 const filePicker = ref(null)
 const imagePicker = ref(null)
@@ -149,6 +150,9 @@ async function send() {
     }
     const sent = attachments.value
     messages.value.push({ role: 'user', text, attachments: sent })
+    const thinkingRequested = deepThinking.value
+    let pendingThinkingIndex = thinkingRequested ? messages.value.length : -1
+    if (thinkingRequested) messages.value.push({ role: 'assistant', thinkingRequested: true })
     input.value = ''
     attachments.value = []
     await scrollBottom()
@@ -161,12 +165,21 @@ async function send() {
       attachments: sent.map(item => item.id),
       allowTools: allowTools.value && toolsAllowed.value,
       toolAccess: toolAccess.value,
+      deepThinking: thinkingRequested,
       allowFileWrites: fileWrites
     }, event => {
       if (event.type === 'started') {
         started.value = true
       } else if (event.type === 'cancelled') {
         messages.value.push({ role: 'assistant', text: '本轮已停止。' })
+      } else if (event.type === 'thinking') {
+        const thinkingMessage = { role: 'assistant', thinking: event.text }
+        if (pendingThinkingIndex >= 0) {
+          messages.value[pendingThinkingIndex] = thinkingMessage
+          pendingThinkingIndex = -1
+        } else {
+          messages.value.push(thinkingMessage)
+        }
       } else if (event.type === 'assistant') {
         messages.value.push({ role: 'assistant', html: renderChatMarkdown(event.text) })
       } else if (event.type === 'tool') {
@@ -360,6 +373,11 @@ onMounted(async () => {
                 <pre>{{ message.detail }}</pre>
               </details>
             </div>
+            <details v-else-if="message.thinking" class="thinking">
+              <summary>查看模型公开的思考过程</summary>
+              <div class="text">{{ message.thinking }}</div>
+            </details>
+            <div v-else-if="message.thinkingRequested" class="muted small">深度思考</div>
             <div v-else-if="message.html" class="markdown" v-html="message.html"></div>
             <div v-else class="text">{{ message.text }}</div>
             <div v-if="message.attachments?.length" class="attachments">
@@ -423,6 +441,10 @@ onMounted(async () => {
               <span class="small">文件写入</span>
             </label>
             <div class="grow"></div>
+            <label title="请求模型深入分析，公开的思考内容可展开查看">
+              <input v-model="deepThinking" type="checkbox" :disabled="sending || !ready" />
+              深度思考
+            </label>
             <button class="btn ghost sm" :disabled="sending || !messages.length" @click="resetChat">清空</button>
             <button v-if="sending" class="btn primary icon-btn send-btn" :disabled="!started || stopping"
                     :title="stopping ? '正在停止' : started ? '停止本轮' : '正在提交'"
@@ -621,6 +643,7 @@ onMounted(async () => {
 .model-picker { max-width: 100%; min-width: 0; padding: 6px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .icon-btn { display: inline-grid; place-items: center; padding: 0; width: 34px; height: 34px; }
 .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.thinking summary { cursor: pointer; }
 .send-btn { border-radius: 50%; }
 .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
 .attachment { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); }

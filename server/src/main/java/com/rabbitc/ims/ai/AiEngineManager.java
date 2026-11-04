@@ -217,11 +217,11 @@ public class AiEngineManager {
     /** 按顺序转发本轮消息事件，工具仍以当前用户身份同步执行。 */
     public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
                                     java.util.function.Consumer<JsonObject> events) {
-        return chat(user, message, allowTools, null, null, List.of(), false, ToolAccess.READ_ONLY, events);
+        return chat(user, message, allowTools, null, null, List.of(), false, ToolAccess.READ_ONLY, false, events);
     }
 
     public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
-                                    String model, String runId, List<String> ids, boolean allowFileWrites, ToolAccess requestedAccess,
+                                    String model, String runId, List<String> ids, boolean allowFileWrites, ToolAccess requestedAccess, boolean deepThinking,
                                     java.util.function.Consumer<JsonObject> events) {
         long version = generation.get();
         configuration.requireEnabled();
@@ -247,7 +247,7 @@ public class AiEngineManager {
         if (runs.putIfAbsent(user.id(), run) != null) throw ApiException.badRequest("已有对话正在运行");
         try {
             events.accept(EmbedAiChat.object("type", "started"));
-            return runChat(user, message, toolsEnabled, selected, version, ids, allowFileWrites, access, events, run.cancelled());
+            return runChat(user, message, toolsEnabled, selected, version, ids, allowFileWrites, access, deepThinking, events, run.cancelled());
         } finally {
             runs.remove(user.id(), run);
         }
@@ -255,6 +255,7 @@ public class AiEngineManager {
 
     private Map<String, Object> runChat(LoginUser user, String message, boolean allowTools, AiModel model,
                                         long version, List<String> ids, boolean allowFileWrites, ToolAccess access,
+                                        boolean deepThinking,
                                         java.util.function.Consumer<JsonObject> events, AtomicBoolean cancelled) {
         boolean externalMcp = allowTools && access == ToolAccess.FULL && user.isAdmin();
         Session session = sessionFor(user, model, version, externalMcp);
@@ -302,7 +303,7 @@ public class AiEngineManager {
             int auditStart = session.engine.exportHistory().getAsJsonArray("audit").size();
             String reply;
             try {
-                reply = session.engine.send(prompt.toString(), events, images.isEmpty() ? null : content, () -> {
+                reply = session.engine.send(prompt.toString(), events, images.isEmpty() ? null : content, deepThinking, () -> {
                     if (cancelled.get() || version != generation.get() || !configuration.current(model)) {
                         throw new CancellationException();
                     }

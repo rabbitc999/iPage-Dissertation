@@ -73,6 +73,41 @@ public final class ConversationEventsTest {
     String literal = "示例：\n" + taggedReply;
     check(engine(object("content", literal)).send("示例").equals(literal), "Keep markup quoted in prose");
 
+    Engine thinking = new Engine((url, headers, body) -> {
+      check(body.getAsJsonObject("thinking").get("type").getAsString().equals("enabled"),
+          "Request native DeepSeek thinking");
+      return object("choices", array(object("message",
+          object("content", "最终答案", "reasoning_content", "公开的思考内容"))));
+    });
+    thinking.config.model = "deepseek-v4-pro";
+    thinking.allowTools = false;
+    List<JsonObject> thinkingEvents = new ArrayList<>();
+    check(thinking.send("请分析", thinkingEvents::add, null, true, () -> {}).equals("最终答案"),
+        "Return the final answer separately");
+    check(thinkingEvents.get(0).equals(object("type", "thinking", "text", "公开的思考内容")),
+        "Emit the provider's public reasoning before the answer");
+    check(!thinking.exportHistory().toString().contains("公开的思考内容"), "Keep thinking out of history");
+
+    JsonArray signedBlocks = array(object("type", "thinking", "thinking", "公开摘要", "signature", "signed"),
+        object("type", "tool_use", "id", "tool-1", "name", "assistant_reply", "input", object("text", "收到")));
+    AtomicInteger rounds = new AtomicInteger();
+    Engine claude = new Engine((url, headers, body) -> {
+      check(body.getAsJsonObject("thinking").equals(object("type", "adaptive")), "Request adaptive thinking");
+      if (rounds.getAndIncrement() == 0) return object("content", signedBlocks);
+      boolean replayed = false;
+      for (JsonElement item : body.getAsJsonArray("messages")) {
+        if (signedBlocks.equals(item.getAsJsonObject().get("content"))) replayed = true;
+      }
+      check(replayed, "Replay signed thinking blocks verbatim alongside tool calls");
+      return object("content", array(object("type", "text", "text", "完成")));
+    });
+    claude.config.provider = "anthropic";
+    claude.config.model = "claude-sonnet-4-6";
+    claude.allowTools = true;
+    List<JsonObject> claudeEvents = new ArrayList<>();
+    check(claude.send("请分析", claudeEvents::add, null, true, () -> {}).equals("完成"), "Finish the tool turn");
+    check(claudeEvents.get(0).equals(object("type", "thinking", "text", "公开摘要")), "Show public Claude thinking");
+
     Engine failing = engine(batch(call("assistant_reply", object("text", "已收到"))));
     List<JsonObject> partial = new ArrayList<>();
     try {
