@@ -9,7 +9,7 @@
  */
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api/http'
+import { api, upload } from '../api/http'
 import { toast, toastError } from '../api/toast'
 import DataForm from '../components/DataForm.vue'
 
@@ -99,6 +99,49 @@ const allChecked = computed(() => rows.value.length > 0 && selected.value.length
  *
  * @returns {object} 查询参数
  */
+/** Transfers use the same authenticated API and filters as the list. */
+const transferFormat = ref('csv')
+const transferring = ref(false)
+
+async function downloadTable(template = false) {
+  const model = key.value
+  const format = transferFormat.value
+  transferring.value = true
+  try {
+    const blob = await api(`/models/${model}/transfer/export`, {
+      params: { ...params(), format, template },
+      responseType: 'blob'
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${model}${template ? '-template' : ''}.${format}`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    toastError(error)
+  } finally {
+    transferring.value = false
+  }
+}
+
+async function importTable(event) {
+  const file = event.target.files[0]
+  event.target.value = ''
+  if (!file) return
+  const model = key.value
+  transferring.value = true
+  try {
+    const result = await upload(`/models/${model}/transfer/import`, file)
+    toast(`已导入 ${result.imported} 条记录`, 'success')
+    if (key.value === model) await loadRows()
+  } catch (error) {
+    toastError(error)
+  } finally {
+    transferring.value = false
+  }
+}
+
 function params() {
   const result = { page: page.value, size: size.value }
   if (key.value === 'ticket') {
@@ -404,6 +447,14 @@ onUnmounted(() => clearTimeout(hideTimer))
       <div class="row wrap">
         <button class="btn" @click="openColumns">列设置</button>
         <button class="btn" :disabled="loading" @click="reload">刷新</button>
+        <select v-model="transferFormat" aria-label="文件格式" :disabled="transferring">
+          <option value="csv">CSV</option>
+          <option value="xlsx">Excel (.xlsx)</option>
+        </select>
+        <button class="btn" :disabled="transferring" @click="downloadTable()">导出</button>
+        <button v-if="canCreate" class="btn" :disabled="transferring" @click="downloadTable(true)">下载导入模板</button>
+        <button v-if="canCreate" class="btn" :disabled="transferring" @click="$refs.importFile.click()">导入</button>
+        <input v-if="canCreate" ref="importFile" type="file" accept=".csv,.xlsx" hidden @change="importTable" />
         <button v-if="canCreate" class="btn primary" @click="openCreate">新增{{ schema.name }}</button>
       </div>
     </div>

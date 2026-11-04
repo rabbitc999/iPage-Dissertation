@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.dialect;
 
 import java.math.BigDecimal;
@@ -37,6 +38,14 @@ public final class MySQLDialect implements Dialect {
     public String idColumnType(Class<?> javaType, boolean autoIncrement) {
         String base = columnType(javaType);
         return autoIncrement ? base + " NOT NULL AUTO_INCREMENT PRIMARY KEY" : base + " PRIMARY KEY";
+    }
+
+    @Override
+    public String columnType(Class<?> javaType, int maxLength) {
+        if (javaType == String.class && maxLength > 4000) {
+            return "LONGTEXT";
+        }
+        return Dialect.super.columnType(javaType, maxLength);
     }
 
     @Override

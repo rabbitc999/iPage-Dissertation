@@ -34,7 +34,7 @@ public class AssociationAccess {
             return sql.options(target);
         }
         ModelMeta meta = ModelMeta.of(target);
-        Query query = scoped(user, target).orderBy(meta.idField().name(), SortType.ASC);
+        Query<?> query = scoped(user, target).orderBy(meta.idField().name(), SortType.ASC);
         Map<String, String> options = new LinkedHashMap<>();
         for (Object row : sql.selectList(query)) {
             options.put(String.valueOf(meta.idValue(row)), meta.display(row));
@@ -47,7 +47,7 @@ public class AssociationAccess {
             return;
         }
         Class<?> target = field.relatedClass();
-        Query query = scoped(user, target).where(ModelMeta.of(target).idField().name(), id);
+        Query<?> query = scoped(user, target).where(ModelMeta.of(target).idField().name(), id);
         if (sql.count(query) == 0) {
             throw ApiException.forbidden("所选「" + field.text() + "」不存在或不在可选范围");
         }
@@ -71,14 +71,14 @@ public class AssociationAccess {
             return sql.options(Department.class);
         }
         Map<String, String> result = new LinkedHashMap<>();
-        for (Department department : sql.<Department>selectList(scoped(user, Department.class))) {
+        for (Department department : sql.selectList(scoped(user, Department.class))) {
             result.put(department.id, department.name);
         }
         return result;
     }
 
-    private Query scoped(LoginUser user, Class<?> target) {
-        Query query = Query.of(target, sql.dialect());
+    private <T> Query<T> scoped(LoginUser user, Class<T> target) {
+        Query<T> query = sql.displayQuery(target);
         if (unrestricted(user)) {
             return query;
         }

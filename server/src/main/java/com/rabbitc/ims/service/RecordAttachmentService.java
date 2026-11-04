@@ -33,19 +33,19 @@ public class RecordAttachmentService {
     }
 
     public List<Map<String, Object>> list(LoginUser user, String model, String recordId) {
-        Query query = forRecord(model, recordId);
+        Query<RecordAttachment> query = forRecord(model, recordId);
         crud.get(user, model, recordId);
         return sql.<RecordAttachment>selectList(query).stream().map(RecordAttachmentService::view).toList();
     }
 
     public ResponseEntity<byte[]> download(LoginUser user, String model, String recordId, String attachmentId) {
-        Query query = forRecord(model, recordId);
+        Query<RecordAttachment> query = forRecord(model, recordId);
         crud.get(user, model, recordId);
         return files.downloadLinkedFile(require(query, attachmentId).fileId);
     }
 
     public void detach(LoginUser user, String model, String recordId, String attachmentId) {
-        Query query = forRecord(model, recordId);
+        Query<RecordAttachment> query = forRecord(model, recordId);
         sql.transaction(tx -> {
             crud.requireEditableRecord(user, model, recordId);
             var attachment = require(query, attachmentId);
@@ -107,12 +107,12 @@ public class RecordAttachmentService {
         return attachment;
     }
 
-    private RecordAttachment require(Query query, String id) {
+    private RecordAttachment require(Query<RecordAttachment> query, String id) {
         return sql.<RecordAttachment>selectOne(query.where("id", id))
                 .orElseThrow(() -> ApiException.notFound("附件关联不存在"));
     }
 
-    private static Query forRecord(String model, String recordId) {
+    private static Query<RecordAttachment> forRecord(String model, String recordId) {
         String field = switch (model) {
             case "ticket" -> "ticketId";
             case "asset" -> "assetId";

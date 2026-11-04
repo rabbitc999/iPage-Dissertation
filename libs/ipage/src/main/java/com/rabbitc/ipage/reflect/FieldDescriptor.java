@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.reflect;
 
 import com.rabbitc.ipage.annotation.ModelField;
@@ -197,6 +198,16 @@ public final class FieldDescriptor {
      */
     public List<Annotation> validators() {
         return validators;
+    }
+
+    /** Returns the finite validated length, or zero when no limit was declared. */
+    public int maxLength() {
+        return validators.stream()
+                .filter(com.rabbitc.ipage.annotation.ValidatorLength.class::isInstance)
+                .map(com.rabbitc.ipage.annotation.ValidatorLength.class::cast)
+                .mapToInt(com.rabbitc.ipage.annotation.ValidatorLength::max)
+                .filter(max -> max > 0 && max < Integer.MAX_VALUE)
+                .min().orElse(0);
     }
 
     /**

@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.sql;
 
 import com.rabbitc.ipage.dialect.Dialect;
@@ -210,7 +211,7 @@ public final class SqlStatement {
      * @param withWhere 是否带 WHERE
      * @return 语句
      */
-    public static SqlStatement select(Query query, boolean withWhere) {
+    public static SqlStatement select(Query<?> query, boolean withWhere) {
         return select(query, withWhere, Dialect.DEFAULT);
     }
 
@@ -222,7 +223,7 @@ public final class SqlStatement {
      * @param dialect   方言
      * @return 语句
      */
-    public static SqlStatement select(Query query, boolean withWhere, Dialect dialect) {
+    public static SqlStatement select(Query<?> query, boolean withWhere, Dialect dialect) {
         ModelMeta meta = query.meta();
         List<String> items = new ArrayList<>();
         for (SelectedField field : query.selectedFields()) {
@@ -252,7 +253,7 @@ public final class SqlStatement {
      * @param query 查询
      * @return 语句
      */
-    public static SqlStatement count(Query query) {
+    public static SqlStatement count(Query<?> query) {
         return count(query, Dialect.DEFAULT);
     }
 
@@ -266,7 +267,7 @@ public final class SqlStatement {
      * @param dialect 方言
      * @return 语句
      */
-    public static SqlStatement count(Query query, Dialect dialect) {
+    public static SqlStatement count(Query<?> query, Dialect dialect) {
         ModelMeta meta = query.meta();
         Builder builder = new Builder();
         if (query.hasAggregates()) {
@@ -298,7 +299,7 @@ public final class SqlStatement {
      * @param id    主键值
      * @return 语句
      */
-    public static SqlStatement selectById(Query query, Object id) {
+    public static SqlStatement selectById(Query<?> query, Object id) {
         return selectById(query, id, Dialect.DEFAULT);
     }
 
@@ -310,7 +311,7 @@ public final class SqlStatement {
      * @param dialect 方言
      * @return 语句
      */
-    public static SqlStatement selectById(Query query, Object id, Dialect dialect) {
+    public static SqlStatement selectById(Query<?> query, Object id, Dialect dialect) {
         Builder builder = new Builder()
                 .append(selectColumns(query, dialect))
                 .append(" FROM ")
@@ -324,7 +325,7 @@ public final class SqlStatement {
         return builder.build();
     }
 
-    private static String selectColumns(Query query, Dialect dialect) {
+    private static String selectColumns(Query<?> query, Dialect dialect) {
         List<String> items = new ArrayList<>();
         for (SelectedField field : query.selectedFields()) {
             items.add(field.toSelectItem(dialect.quote(field.alias())));
@@ -403,6 +404,12 @@ public final class SqlStatement {
      */
     public static SqlStatement update(ModelMeta meta, Map<String, Object> values, String idColumn, Object id,
                                       Dialect dialect) {
+        return update(meta, values, idColumn, id, dialect, null, null);
+    }
+
+    /** Updates a row only when its expected version still matches. */
+    public static SqlStatement update(ModelMeta meta, Map<String, Object> values, String idColumn, Object id,
+                                      Dialect dialect, String versionColumn, Object expectedVersion) {
         Builder builder = new Builder()
                 .append("UPDATE ")
                 .append(tableRef(meta.table(), dialect))
@@ -418,6 +425,11 @@ public final class SqlStatement {
         builder.append(" WHERE ");
         builder.condition(new SqlCondition(quoteColumn(idColumn, dialect),
                 com.rabbitc.ipage.enums.OperatorType.EQ, id));
+        if (versionColumn != null) {
+            builder.append(" AND ");
+            builder.condition(new SqlCondition(quoteColumn(versionColumn, dialect),
+                    com.rabbitc.ipage.enums.OperatorType.EQ, expectedVersion));
+        }
         return builder.build();
     }
 
@@ -591,11 +603,11 @@ public final class SqlStatement {
         return dialect.quote(requireIdentifier(column, "列名"));
     }
 
-    private static void appendJoins(Builder builder, Query query) {
+    private static void appendJoins(Builder builder, Query<?> query) {
         appendJoins(builder, query, Dialect.DEFAULT);
     }
 
-    private static void appendJoins(Builder builder, Query query, Dialect dialect) {
+    private static void appendJoins(Builder builder, Query<?> query, Dialect dialect) {
         for (JoinCondition join : query.joins()) {
             builder.append(" LEFT JOIN ")
                    .append(tableRef(join.getJoinTable(), dialect))
@@ -606,7 +618,7 @@ public final class SqlStatement {
         }
     }
 
-    private static void appendWhere(Builder builder, Query query) {
+    private static void appendWhere(Builder builder, Query<?> query) {
         if (query.whereConditions().isEmpty()) {
             return;
         }
@@ -625,7 +637,7 @@ public final class SqlStatement {
         }
     }
 
-    private static void appendGroupAndHaving(Builder builder, Query query) {
+    private static void appendGroupAndHaving(Builder builder, Query<?> query) {
         if (!query.groupByColumns().isEmpty()) {
             builder.append(" GROUP BY ");
             boolean first = true;
@@ -643,7 +655,7 @@ public final class SqlStatement {
         }
     }
 
-    private static void appendOrderAndPage(Builder builder, Query query, Dialect dialect) {
+    private static void appendOrderAndPage(Builder builder, Query<?> query, Dialect dialect) {
         if (!query.orderByMap().isEmpty()) {
             builder.append(" ORDER BY ");
             boolean first = true;

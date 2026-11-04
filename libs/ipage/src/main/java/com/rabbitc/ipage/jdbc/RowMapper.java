@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.jdbc;
 
 import com.rabbitc.ipage.enums.FieldType;
@@ -49,12 +50,12 @@ public interface RowMapper<T> {
      * @return 映射器
      */
     @SuppressWarnings("unchecked")
-    static <T> RowMapper<T> of(Query query) {
+    static <T> RowMapper<T> of(Query<T> query) {
         ModelMeta meta = query.meta();
         return result -> {
             T entity = (T) meta.newInstance();
             Map<String, Object> associations = new HashMap<>(4);
-            Map<String, Boolean> associationHit = new HashMap<>(4);
+            var associationHits = new java.util.HashSet<String>();
 
             for (SelectedField selected : query.selectedFields()) {
                 String path = selected.entityPath();
@@ -76,35 +77,25 @@ public interface RowMapper<T> {
                     continue;
                 }
 
-                String ownerName = path.substring(0, dot);
-                String childName = path.substring(dot + 1);
+                int lastDot = path.lastIndexOf('.');
+                String ownerPath = path.substring(0, lastDot);
                 Object raw = read(result, selected.alias());
-                if (raw != null) {
-                    associationHit.put(ownerName, Boolean.TRUE);
+                int parentDot = ownerPath.lastIndexOf('.');
+                if (parentDot >= 0 && !associationHits.contains(ownerPath.substring(0, parentDot))) continue;
+                Object parent = parentDot < 0 ? entity : associations.get(ownerPath.substring(0, parentDot));
+                FieldDescriptor association = ModelMeta.of(parent.getClass())
+                        .field(ownerPath.substring(parentDot + 1)).orElse(null);
+                if (association == null || association.type() != FieldType.ASSOCIATION_MODEL) continue;
+                Object owner = associations.computeIfAbsent(ownerPath,
+                        key -> ModelMeta.of(association.relatedClass()).newInstance());
+                if (raw != null && associationHits.add(ownerPath)) {
+                    association.write(parent, owner);
                 }
-                Object owner = associations.get(ownerName);
-                if (owner == null) {
-                    FieldDescriptor ownerField = meta.field(ownerName).orElse(null);
-                    if (ownerField == null || ownerField.relatedClass() == null) {
-                        continue;
-                    }
-                    ModelMeta relation = ModelMeta.of(ownerField.relatedClass());
-                    owner = relation.newInstance();
-                    associations.put(ownerName, owner);
-                }
-                ModelMeta relation = ModelMeta.of(meta.field(ownerName)
-                        .map(FieldDescriptor::relatedClass).orElseThrow());
-                FieldDescriptor child = relation.field(childName).orElse(null);
+                FieldDescriptor child = ModelMeta.of(owner.getClass()).field(path.substring(lastDot + 1)).orElse(null);
                 if (child != null) {
                     child.write(owner, ValueConverter.fromDatabase(child.javaType(), raw));
                 }
             }
-
-            associations.forEach((ownerName, owner) -> {
-                if (Boolean.TRUE.equals(associationHit.get(ownerName))) {
-                    meta.field(ownerName).ifPresent(field -> field.write(entity, owner));
-                }
-            });
             return entity;
         };
     }

@@ -129,3 +129,10 @@ MariaDB Connector/J（LGPL-2.1）。用 PostgreSQL 则完全无此顾虑。
 3. **升级依赖大版本**：核对许可证是否变化（近两年 Redis、Elasticsearch、
    Terraform 都改过），变化则同步更新本文件。
 4. 本文件是 `README.md`「许可证」章节的唯一事实来源，改这里就够了，不要在别处重复罗列。
+
+## Tabular import/export
+
+Apache Commons CSV and Apache POI are distributed under the Apache License 2.0. See https://www.apache.org/licenses/LICENSE-2.0.
+
+The bundled iPage source includes iPage-IMS changes for typed model queries, validated string lengths in schema generation, and display-template diagnostics.
+The bundled iPage also includes bounded multi-hop association queries, JDBC batches, callback-based row iteration, count-free slices, versioned updates, and optional model permission keys.

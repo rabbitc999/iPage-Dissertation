@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.jdbc;
 
 import com.rabbitc.ipage.dialect.Dialect;
@@ -209,7 +210,7 @@ public final class SchemaSync {
 
     private String columnDefinition(FieldDescriptor field) {
         // 不加 NOT NULL：表里可能已有数据，新增非空列会失败；非空约束交给校验层
-        return dialect.quote(field.column()) + " " + dialect.columnType(field.javaType());
+        return dialect.quote(field.column()) + " " + dialect.columnType(field.javaType(), field.maxLength());
     }
 
     private void run(Connection connection, String sql, List<String> executed) throws SQLException {

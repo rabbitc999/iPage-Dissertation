@@ -1,8 +1,10 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.jdbc;
 
 import com.rabbitc.ipage.dialect.Dialect;
 import com.rabbitc.ipage.dialect.Dialects;
 import com.rabbitc.ipage.enums.CheckerType;
+import com.rabbitc.ipage.enums.FieldType;
 import com.rabbitc.ipage.enums.OperatorType;
 import com.rabbitc.ipage.exception.CheckerException;
 import com.rabbitc.ipage.exception.ModelDefinitionException;
@@ -405,6 +407,47 @@ public final class ModelSession {
         }
     }
 
+    /** Consumes rows inside the JDBC resource scope. Driver cursor behavior depends on its configuration. */
+    public <T> void forEachRow(Query<T> query, int fetchSize, java.util.function.Consumer<? super T> consumer) {
+        SqlStatement statement = SqlStatement.select(query, true, dialect);
+        RowMapper<T> mapper = RowMapper.of(query);
+        try (Scoped scope = prepare(statement.sql())) {
+            scope.statement.setFetchSize(fetchSize);
+            try (ResultSet result = query(scope.statement, statement.parameters())) {
+                while (result.next()) {
+                    consumer.accept(mapper.mapRow(result));
+                }
+            }
+        } catch (SQLException e) {
+            throw failure("查询失败", statement.sql(), e);
+        }
+    }
+
+    /** A page fetched without counting the matching rows. */
+    public record Slice<T>(List<T> rows, int page, int pageSize, boolean hasNext) {
+        public Slice {
+            rows = List.copyOf(rows);
+        }
+    }
+
+    /** Fetches one extra row to detect a next page in a single query. */
+    public <T> Slice<T> selectSlice(Query<T> query, int page, int size) {
+        int pageNumber = Math.max(page, 1);
+        int pageSize = Math.max(size, 1);
+        query.page(pageNumber, pageSize);
+        Integer previousLimit = query.limit();
+        Integer previousOffset = query.offset();
+        try {
+            query.limit(Math.addExact(pageSize, 1), previousOffset);
+            List<T> rows = selectList(query);
+            boolean hasNext = rows.size() > pageSize;
+            return new Slice<>(hasNext ? rows.subList(0, pageSize) : rows, pageNumber, pageSize, hasNext);
+        } finally {
+            query.limit(previousLimit, previousOffset);
+        }
+    }
+
+
     // ------------------------------------------------------------------ 查询
 
     /**
@@ -417,7 +460,7 @@ public final class ModelSession {
      * @param <T>    模型类型
      * @return 分页结果
      */
-    public <T> Page<T> selectPage(Query query, RowMapper<T> mapper, int page, int size) {
+    public <T> Page<T> selectPage(Query<?> query, RowMapper<T> mapper, int page, int size) {
         int pageNumber = Math.max(page, 1);
         int pageSize = Math.max(size, 1);
         query.page(pageNumber, pageSize);
@@ -438,7 +481,7 @@ public final class ModelSession {
      * @param <T>   模型类型
      * @return 分页结果
      */
-    public <T> Page<T> selectPage(Query query, int page, int size) {
+    public <T> Page<T> selectPage(Query<T> query, int page, int size) {
         return selectPage(query, RowMapper.of(query), page, size);
     }
 
@@ -450,7 +493,7 @@ public final class ModelSession {
      * @param <T>    模型类型
      * @return 行列表
      */
-    public <T> List<T> selectList(Query query, RowMapper<T> mapper) {
+    public <T> List<T> selectList(Query<?> query, RowMapper<T> mapper) {
         return query(SqlStatement.select(query, true, dialect), mapper);
     }
 
@@ -461,7 +504,7 @@ public final class ModelSession {
      * @param <T>   模型类型
      * @return 实体列表
      */
-    public <T> List<T> selectList(Query query) {
+    public <T> List<T> selectList(Query<T> query) {
         return selectList(query, RowMapper.of(query));
     }
 
@@ -476,7 +519,7 @@ public final class ModelSession {
      * @param <T>    模型类型
      * @return 结果，无匹配时为空
      */
-    public <T> Optional<T> selectOne(Query query, RowMapper<T> mapper) {
+    public <T> Optional<T> selectOne(Query<?> query, RowMapper<T> mapper) {
         Integer savedLimit = query.limit();
         Integer savedOffset = query.offset();
         List<T> rows;
@@ -496,7 +539,7 @@ public final class ModelSession {
      * @param <T>   模型类型
      * @return 实体，无匹配时为空
      */
-    public <T> Optional<T> selectOne(Query query) {
+    public <T> Optional<T> selectOne(Query<T> query) {
         return selectOne(query, RowMapper.of(query));
     }
 
@@ -510,7 +553,7 @@ public final class ModelSession {
      */
     public <T> Optional<T> findById(Class<T> modelClass, Object id) {
         ModelMeta meta = metaOf(modelClass);
-        Query query = Query.of(meta, dialect);
+        Query<T> query = Query.of(modelClass, dialect);
         SqlStatement statement = SqlStatement.selectById(query, id, dialect);
         List<T> rows = query(statement, RowMapper.of(query));
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
@@ -522,7 +565,7 @@ public final class ModelSession {
      * @param query 查询
      * @return 行数
      */
-    public long count(Query query) {
+    public long count(Query<?> query) {
         Object value = queryScalar(SqlStatement.count(query, dialect));
         return value instanceof Number number ? number.longValue() : 0L;
     }
@@ -533,9 +576,26 @@ public final class ModelSession {
      * @param query 查询
      * @return 存在则 {@code true}
      */
-    public boolean exists(Query query) {
+    public boolean exists(Query<?> query) {
         return count(query) > 0;
     }
+
+    /** Builds a session-dialect query with the joins required by a nested display template. */
+    public <T> Query<T> displayQuery(Class<T> modelClass) {
+        int depth = displayAssociationDepth(ModelMeta.of(modelClass));
+        return Query.of(modelClass, dialect, Math.max(1, depth));
+    }
+
+    private static int displayAssociationDepth(ModelMeta meta) {
+        int depth = 0;
+        Matcher matcher = PLACEHOLDER.matcher(meta.displayTemplate());
+        while (matcher.find()) {
+            int hops = (int) matcher.group(1).chars().filter(character -> character == '.').count();
+            depth = Math.max(depth, hops);
+        }
+        return Math.min(depth, 4);
+    }
+
 
     /**
      * 读取某字段的可选值，用于下拉框。
@@ -549,6 +609,14 @@ public final class ModelSession {
      */
     public Map<String, String> options(Class<?> modelClass) {
         ModelMeta meta = metaOf(modelClass);
+        if (displayAssociationDepth(meta) > 0) {
+            Map<String, String> options = new LinkedHashMap<>();
+            for (Object row : selectList(displayQuery(modelClass).orderBy(meta.idField().name(),
+                    com.rabbitc.ipage.enums.SortType.ASC))) {
+                options.put(String.valueOf(meta.idValue(row)), meta.display(row));
+            }
+            return options;
+        }
         String labelColumn = labelColumn(meta);
         SqlStatement statement = SqlStatement.options(meta, labelColumn,
                 dialect.quote(meta.table()) + "." + dialect.quote(labelColumn), dialect);
@@ -630,7 +698,10 @@ public final class ModelSession {
         }
         assignIdentifier(meta, entity);
         Map<String, Object> values = writableValues(meta, entity, true);
-        SqlStatement statement = SqlStatement.insert(meta, values, dialect);
+        return executeInsert(entity, meta, SqlStatement.insert(meta, values, dialect));
+    }
+
+    private int executeInsert(Object entity, ModelMeta meta, SqlStatement statement) {
         String sql = statement.sql();
         boolean needKeys = meta.idValue(entity) == null && isInteger(meta.idJavaType());
         try (Scoped scope = prepare(sql, needKeys ? Statement.RETURN_GENERATED_KEYS : Statement.NO_GENERATED_KEYS)) {
@@ -651,6 +722,61 @@ public final class ModelSession {
             throw failure("新增 " + meta.name() + " 失败", sql, e);
         }
     }
+
+    /**
+     * Inserts rows in input order using JDBC batches for consecutive identical SQL shapes.
+     * Models with generated numeric IDs use ordinary inserts to preserve key assignment.
+     * Returns JDBC update counts in input order, including SUCCESS_NO_INFO where applicable.
+     */
+    public int[] insertBatch(List<?> entities) throws CheckerException {
+        List<SqlStatement> statements = new ArrayList<>(entities.size());
+        for (Object entity : entities) {
+            ModelMeta meta = metaOf(entity.getClass());
+            if (validating) {
+                ModelValidator.validate(entity, CheckerType.ADD, null);
+            }
+            assignIdentifier(meta, entity);
+            statements.add(SqlStatement.insert(meta, writableValues(meta, entity, true), dialect));
+        }
+
+        int[] counts = new int[entities.size()];
+        transaction(tx -> {
+            int index = 0;
+            while (index < statements.size()) {
+                Object entity = entities.get(index);
+                ModelMeta meta = metaOf(entity.getClass());
+                SqlStatement statement = statements.get(index);
+                if (meta.idValue(entity) == null && isInteger(meta.idJavaType())) {
+                    counts[index++] = executeInsert(entity, meta, statement);
+                    continue;
+                }
+                int start = index;
+                try (Scoped scope = prepare(statement.sql())) {
+                    while (index < statements.size() && statement.sql().equals(statements.get(index).sql())) {
+                        Object candidate = entities.get(index);
+                        ModelMeta candidateMeta = metaOf(candidate.getClass());
+                        if (candidateMeta.idValue(candidate) == null && isInteger(candidateMeta.idJavaType())) {
+                            break;
+                        }
+                        bind(scope.statement, statements.get(index++).parameters());
+                        scope.statement.addBatch();
+                    }
+                    int[] batch = scope.statement.executeBatch();
+                    if (batch.length != index - start) {
+                        throw new SQLException("JDBC 返回的批量新增结果数不匹配");
+                    }
+                    for (int count : batch) {
+                        if (count == Statement.EXECUTE_FAILED) throw new SQLException("批量新增失败");
+                    }
+                    System.arraycopy(batch, 0, counts, start, batch.length);
+                } catch (SQLException error) {
+                    throw failure("批量新增失败", statement.sql(), error);
+                }
+            }
+        });
+        return counts;
+    }
+
 
     /**
      * 按主键更新一条记录，主键字段本身不会被写回。
@@ -680,6 +806,42 @@ public final class ModelSession {
         return execute(SqlStatement.update(meta, values, meta.idColumn(), id, dialect),
                 "更新 " + meta.name() + " 失败");
     }
+
+    /**
+     * Updates a model and increments its int/long version atomically.
+     * The entity must carry the version read by the caller. Returns zero on a stale or missing row.
+     */
+    public int updateVersioned(Object entity, String versionField) throws CheckerException {
+        ModelMeta meta = metaOf(entity.getClass());
+        Object id = meta.idValue(entity);
+        FieldDescriptor field = meta.resolve(versionField).orElseThrow(
+                () -> new ModelDefinitionException("找不到版本字段：" + versionField));
+        Class<?> type = field.javaType();
+        if (id == null || field.type() == FieldType.MODEL_ID || !field.isColumn() || field.fixed()
+                || (type != int.class && type != Integer.class && type != long.class && type != Long.class)) {
+            throw new ModelDefinitionException("乐观锁需要非空主键和可写的 int/long 版本字段");
+        }
+        Object expected = field.read(entity);
+        if (expected == null) throw new ModelDefinitionException("版本不能为空");
+        Object next;
+        if (expected instanceof Integer value) {
+            next = Math.incrementExact(value);
+        } else {
+            next = Math.incrementExact((Long) expected);
+        }
+        if (validating) {
+            Object before = findById(entity.getClass(), id).orElse(null);
+            if (before == null || !expected.equals(field.read(before))) return 0;
+            ModelValidator.validate(entity, CheckerType.UPDATE, before);
+        }
+        Map<String, Object> values = writableValues(meta, entity, false);
+        values.put(field.column(), next);
+        int affected = execute(SqlStatement.update(meta, values, meta.idColumn(), id, dialect,
+                field.column(), expected), "更新 " + meta.name() + " 失败");
+        if (affected > 0) field.write(entity, next);
+        return affected;
+    }
+
 
     /**
      * 按主键删除。

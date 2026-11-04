@@ -105,7 +105,7 @@ public class BusinessConstraints {
     }
 
     private List<Object> load(Class<?> type) {
-        return sql.selectList(Query.of(type, sql.dialect()));
+        return sql.selectList(Query.of(ModelMeta.of(type), sql.dialect()));
     }
 
     private boolean exists(Connection connection, Rule rule) throws SQLException {

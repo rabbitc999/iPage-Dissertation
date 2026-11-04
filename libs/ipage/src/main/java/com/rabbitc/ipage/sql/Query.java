@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.sql;
 
 import com.rabbitc.ipage.dialect.Dialect;
@@ -34,7 +35,7 @@ import java.util.Set;
  * @version 1.0
  * @since 1.0
  */
-public final class Query {
+public final class Query<T> {
 
     private final ModelMeta meta;
     private final String baseAlias;
@@ -54,13 +55,23 @@ public final class Query {
     private Integer offset;
 
     private Query(ModelMeta meta, Dialect dialect) {
+        this(meta, dialect, 1);
+    }
+
+    private Query(ModelMeta meta, Dialect dialect, int depth) {
+        if (depth < 1 || depth > 4) {
+            throw new IllegalArgumentException("Association depth must be between 1 and 4");
+        }
         this.meta = meta;
         this.dialect = dialect;
         this.baseAlias = Aliases.of(meta.table());
         aliases.add(baseAlias);
         selectColumns();
-        joinAssociations();
+        List<AssociationJoin> roots = joinAssociations();
         selectAggregates();
+        for (AssociationJoin root : roots) {
+            joinNested(root, depth - 1);
+        }
     }
 
     /**
@@ -69,7 +80,7 @@ public final class Query {
      * @param modelClass 模型类
      * @return 查询对象
      */
-    public static Query of(Class<?> modelClass) {
+    public static <T> Query<T> of(Class<T> modelClass) {
         return of(modelClass, Dialect.DEFAULT);
     }
 
@@ -80,8 +91,8 @@ public final class Query {
      * @param dialect    方言
      * @return 查询对象
      */
-    public static Query of(Class<?> modelClass, Dialect dialect) {
-        return new Query(ModelMeta.of(modelClass), dialect);
+    public static <T> Query<T> of(Class<T> modelClass, Dialect dialect) {
+        return new Query<>(ModelMeta.of(modelClass), dialect);
     }
 
     /**
@@ -90,7 +101,7 @@ public final class Query {
      * @param meta 元数据
      * @return 查询对象
      */
-    public static Query of(ModelMeta meta) {
+    public static Query<Object> of(ModelMeta meta) {
         return of(meta, Dialect.DEFAULT);
     }
 
@@ -101,9 +112,17 @@ public final class Query {
      * @param dialect 方言
      * @return 查询对象
      */
-    public static Query of(ModelMeta meta, Dialect dialect) {
-        return new Query(meta, dialect);
+    public static Query<Object> of(ModelMeta meta, Dialect dialect) {
+        return new Query<>(meta, dialect);
     }
+
+    /** Builds a query that hydrates association paths up to the given number of joins. */
+    public static <T> Query<T> of(Class<T> modelClass, Dialect dialect, int associationDepth) {
+        return new Query<>(ModelMeta.of(modelClass), dialect, associationDepth);
+    }
+
+    private record AssociationJoin(ModelMeta meta, String alias, String path) {}
+
 
     // ---------------------------------------------------------------- 组装
 
@@ -165,7 +184,8 @@ public final class Query {
      * 且要求它的 {@code column()} 在本表上确实是一列；否则说明那是「子表反查父表」的用法
      * （例如聚合统计），此时不该在这里连表，留给聚合表达式自己处理。
      */
-    private void joinAssociations() {
+    private List<AssociationJoin> joinAssociations() {
+        List<AssociationJoin> roots = new ArrayList<>();
         Set<Class<?>> handled = new LinkedHashSet<>();
         for (FieldDescriptor field : meta.fields()) {
             FieldType type = field.type();
@@ -175,12 +195,12 @@ public final class Query {
             if (field.relatedClass() == null || !handled.add(field.relatedClass())) {
                 continue;
             }
-            FieldDescriptor foreignKey = foreignKeyOf(field);
+            FieldDescriptor foreignKey = foreignKeyOf(meta, field);
             if (foreignKey == null) {
                 continue;
             }
             ModelMeta relation = ModelMeta.of(field.relatedClass());
-            String relationAlias = aliasOf(relation.table());
+            String relationAlias = joinAliasOf(relation.table());
             if (relationAlias == null) {
                 relationAlias = requestAlias(relation.table());
                 String on = aliased(baseAlias, foreignKey.column())
@@ -189,15 +209,41 @@ public final class Query {
                 joinedRelations.add(relation.table());
             }
             String owner = associationOwner(field);
-            for (FieldDescriptor relationField : relation.columnFields()) {
-                selectedFields.add(SelectedField.association(
-                        selectAlias(relationAlias + "_" + relationField.name()),
-                        aliased(relationAlias, relationField.column()),
-                        owner + "." + relationField.name(),
-                        relation.modelClass()));
+            AssociationJoin joined = new AssociationJoin(relation, relationAlias, owner);
+            selectAssociation(joined);
+            if (meta.field(owner).orElseThrow().type() == FieldType.ASSOCIATION_MODEL) {
+                roots.add(joined);
             }
         }
+        return roots;
     }
+
+    private void joinNested(AssociationJoin parent, int remaining) {
+        if (remaining == 0) return;
+        for (FieldDescriptor field : parent.meta().fields()) {
+            if (field.type() != FieldType.ASSOCIATION_MODEL || field.relatedClass() == null) continue;
+            FieldDescriptor key = foreignKeyOf(parent.meta(), field);
+            if (key == null) continue;
+            ModelMeta relation = ModelMeta.of(field.relatedClass());
+            String alias = requestAlias(relation.table());
+            String on = aliased(parent.alias(), key.column()) + " = " + aliased(alias, relation.idColumn());
+            joins.add(new JoinCondition(relation.table(), alias, on));
+            AssociationJoin child = new AssociationJoin(relation, alias, parent.path() + "." + field.name());
+            selectAssociation(child);
+            joinNested(child, remaining - 1);
+        }
+    }
+
+    private void selectAssociation(AssociationJoin relation) {
+        for (FieldDescriptor field : relation.meta().columnFields()) {
+            selectedFields.add(SelectedField.association(
+                    selectAlias(relation.alias() + "_" + field.name()),
+                    aliased(relation.alias(), field.column()),
+                    relation.path() + "." + field.name(),
+                    relation.meta().modelClass()));
+        }
+    }
+
 
     /**
      * 找可用于连表的外键字段。
@@ -210,9 +256,10 @@ public final class Query {
      * @param origin 关联字段
      * @return 外键字段，无法连表时为 {@code null}
      */
-    private FieldDescriptor foreignKeyOf(FieldDescriptor origin) {
+    private static FieldDescriptor foreignKeyOf(ModelMeta meta, FieldDescriptor origin) {
         for (FieldDescriptor field : meta.fields()) {
-            if (field.type() == FieldType.ASSOCIATION_ID && field.relatedClass() == origin.relatedClass()) {
+            if (field.type() == FieldType.ASSOCIATION_ID && field.relatedClass() == origin.relatedClass()
+                    && (origin.type() == FieldType.ASSOCIATION_ID || field.column().equals(origin.column()))) {
                 return field;
             }
         }
@@ -352,7 +399,7 @@ public final class Query {
      * @param value        值，为空时忽略
      * @return 当前查询
      */
-    public Query where(String nameOrColumn, Object value) {
+    public Query<T> where(String nameOrColumn, Object value) {
         return where(nameOrColumn, OperatorType.EQ, value);
     }
 
@@ -364,7 +411,7 @@ public final class Query {
      * @param value        值；{@link OperatorType#IS_NULL} 系列忽略
      * @return 当前查询
      */
-    public Query where(String nameOrColumn, OperatorType operator, Object value) {
+    public Query<T> where(String nameOrColumn, OperatorType operator, Object value) {
         FieldDescriptor field = meta.resolve(nameOrColumn).orElseThrow(
                 () -> new IllegalArgumentException(
                         "模型 " + meta.modelClass().getSimpleName() + " 上不存在字段或列「" + nameOrColumn + "」"));
@@ -390,7 +437,7 @@ public final class Query {
      * @param value        值，为空时忽略
      * @return 当前查询
      */
-    public Query like(String nameOrColumn, Object value) {
+    public Query<T> like(String nameOrColumn, Object value) {
         return where(nameOrColumn, OperatorType.LIKE, value);
     }
 
@@ -401,7 +448,7 @@ public final class Query {
      * @param values       取值集合，为空时忽略
      * @return 当前查询
      */
-    public Query in(String nameOrColumn, Collection<?> values) {
+    public Query<T> in(String nameOrColumn, Collection<?> values) {
         if (values == null || values.isEmpty()) {
             return this;
         }
@@ -419,7 +466,7 @@ public final class Query {
      * @param to           上界，可为 {@code null}
      * @return 当前查询
      */
-    public Query between(String nameOrColumn, Object from, Object to) {
+    public Query<T> between(String nameOrColumn, Object from, Object to) {
         where(nameOrColumn, OperatorType.GTE, from);
         where(nameOrColumn, OperatorType.LTE, to);
         return this;
@@ -432,7 +479,7 @@ public final class Query {
      * @param sort         排序方向
      * @return 当前查询
      */
-    public Query orderBy(String nameOrColumn, SortType sort) {
+    public Query<T> orderBy(String nameOrColumn, SortType sort) {
         if (nameOrColumn == null || nameOrColumn.isBlank()) {
             return this;
         }
@@ -455,7 +502,7 @@ public final class Query {
      * @param pageSize   每页条数
      * @return 当前查询
      */
-    public Query page(Integer pageNumber, int pageSize) {
+    public Query<T> page(Integer pageNumber, int pageSize) {
         if (pageNumber == null || pageNumber <= 0 || pageSize <= 0) {
             this.limit = null;
             this.offset = null;
@@ -476,7 +523,7 @@ public final class Query {
      * @param offset 偏移量
      * @return 当前查询
      */
-    public Query limit(Integer limit, Integer offset) {
+    public Query<T> limit(Integer limit, Integer offset) {
         if (limit == null || limit <= 0) {
             this.limit = null;
             this.offset = null;
@@ -493,7 +540,7 @@ public final class Query {
      * @param nameOrColumn 字段名或列名
      * @return 当前查询
      */
-    public Query groupBy(String nameOrColumn) {
+    public Query<T> groupBy(String nameOrColumn) {
         groupBy.add(resolveColumn(nameOrColumn));
         return this;
     }

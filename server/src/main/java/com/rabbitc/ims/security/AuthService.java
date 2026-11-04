@@ -110,7 +110,7 @@ public class AuthService {
      */
     public LoginUser snapshot(User user) {
         List<String> roleIds = new ArrayList<>();
-        for (UserRole link : sql.<UserRole>selectList(Query.of(UserRole.class).where("userId", user.id))) {
+        for (UserRole link : sql.selectList(Query.of(UserRole.class).where("userId", user.id))) {
             if (link.roleId != null) {
                 roleIds.add(link.roleId);
             }
@@ -134,13 +134,13 @@ public class AuthService {
         Set<String> codes = new LinkedHashSet<>();
         if (!roleIds.isEmpty()) {
             List<String> permissionIds = new ArrayList<>();
-            for (RolePermission link : sql.<RolePermission>selectList(Query.of(RolePermission.class).in("roleId", roleIds))) {
+            for (RolePermission link : sql.selectList(Query.of(RolePermission.class).in("roleId", roleIds))) {
                 if (link.permissionId != null) {
                     permissionIds.add(link.permissionId);
                 }
             }
             if (!permissionIds.isEmpty()) {
-                for (Permission permission : sql.<Permission>selectList(Query.of(Permission.class).in("id", permissionIds))) {
+                for (Permission permission : sql.selectList(Query.of(Permission.class).in("id", permissionIds))) {
                     if (permission.code != null) {
                         codes.add(permission.code);
                     }

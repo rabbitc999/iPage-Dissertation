@@ -55,7 +55,7 @@ public class AiConfiguration {
     }
 
     public boolean enabled() {
-        return available() && sql.<SysSetting>selectOne(Query.of(SysSetting.class).where("settingKey", ENABLED))
+        return available() && sql.selectOne(Query.of(SysSetting.class).where("settingKey", ENABLED))
                 .map(row -> Boolean.parseBoolean(row.settingValue)).orElse(false);
     }
 
@@ -64,12 +64,12 @@ public class AiConfiguration {
     }
 
     public List<AiModel> models() {
-        return sql.<AiModel>selectList(Query.of(AiModel.class)).stream()
+        return sql.selectList(Query.of(AiModel.class)).stream()
                 .sorted(Comparator.comparing((AiModel model) -> model.name).thenComparing(model -> model.id)).toList();
     }
 
     public boolean current(AiModel model) {
-        return enabled() && sql.<AiModel>selectOne(Query.of(AiModel.class).where("id", model.id))
+        return enabled() && sql.selectOne(Query.of(AiModel.class).where("id", model.id))
                 .map(row -> Boolean.TRUE.equals(row.enabled) && java.util.Objects.equals(row.revision, model.revision))
                 .orElse(false);
     }
@@ -133,10 +133,10 @@ public class AiConfiguration {
 
     /** 员工授权使用登录用户的 ID。员工档案与登录账号在当前系统中独立。 */
     public Map<String, Object> accessOptions() {
-        var departments = sql.<Department>selectList(Query.of(Department.class)).stream()
+        var departments = sql.selectList(Query.of(Department.class)).stream()
                 .sorted(Comparator.comparing(Department::toString))
                 .map(dept -> Map.of("id", dept.id, "label", dept.name + "（" + dept.code + "）")).toList();
-        var users = sql.<User>selectList(Query.of(User.class).where("status", RecordStatus.ENABLED)).stream()
+        var users = sql.selectList(Query.of(User.class).where("status", RecordStatus.ENABLED)).stream()
                 .sorted(Comparator.comparing(user -> user.username))
                 .map(user -> Map.of("id", user.id, "label", user.name + "（" + user.username + "）")).toList();
         return Map.of("departments", departments, "users", users);
@@ -226,7 +226,7 @@ public class AiConfiguration {
 
     public synchronized void setEnabled(LoginUser user, boolean enabled) {
         sql.transaction(tx -> {
-            var found = tx.<SysSetting>selectOne(Query.of(SysSetting.class).where("settingKey", ENABLED));
+            var found = tx.selectOne(Query.of(SysSetting.class).where("settingKey", ENABLED));
             SysSetting row = found.orElseGet(SysSetting::new);
             row.settingKey = ENABLED;
             row.settingValue = Boolean.toString(enabled);
@@ -243,7 +243,7 @@ public class AiConfiguration {
     }
 
     private AiModel require(String id) {
-        return sql.<AiModel>selectOne(Query.of(AiModel.class).where("id", id))
+        return sql.selectOne(Query.of(AiModel.class).where("id", id))
                 .orElseThrow(() -> ApiException.notFound("模型不存在"));
     }
 

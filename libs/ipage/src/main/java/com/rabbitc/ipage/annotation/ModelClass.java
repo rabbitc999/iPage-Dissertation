@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.annotation;
 
 import com.rabbitc.ipage.meta.ModelPermission;
@@ -56,6 +57,15 @@ public @interface ModelClass {
      * @return 删除所需的最低权限
      */
     ModelPermission delete() default ModelPermission.LEAST;
+
+    /** Optional role permission code required for view access. */
+    String viewKey() default "";
+
+    /** Optional role permission code required for create and update access. */
+    String editKey() default "";
+
+    /** Optional role permission code required for delete access. */
+    String deleteKey() default "";
 
     /**
      * 菜单图标（Font Awesome 类名，不含 {@code fa-} 前缀以外的东西）。

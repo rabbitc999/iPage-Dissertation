@@ -86,7 +86,7 @@ public class RoleController {
     @GetMapping("/roles")
     public List<Map<String, Object>> roles() {
         List<Map<String, Object>> list = new ArrayList<>();
-        for (Role role : sql.<Role>selectList(Query.of(Role.class).orderBy("level", SortType.DESC))) {
+        for (Role role : sql.selectList(Query.of(Role.class).orderBy("level", SortType.DESC))) {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", role.id);
             item.put("code", role.code);
@@ -160,7 +160,7 @@ public class RoleController {
     @GetMapping("/permissions")
     public List<Map<String, Object>> permissions() {
         List<Map<String, Object>> list = new ArrayList<>();
-        for (Permission permission : sql.<Permission>selectList(Query.of(Permission.class)
+        for (Permission permission : sql.selectList(Query.of(Permission.class)
                 .orderBy("groupName", SortType.ASC)
                 .orderBy("sortNo", SortType.ASC))) {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -183,7 +183,7 @@ public class RoleController {
     @GetMapping("/roles/{id}/permissions")
     public Map<String, Object> rolePermissions(@PathVariable String id) {
         List<String> ids = new ArrayList<>();
-        for (RolePermission link : sql.<RolePermission>selectList(Query.of(RolePermission.class).where("roleId", id))) {
+        for (RolePermission link : sql.selectList(Query.of(RolePermission.class).where("roleId", id))) {
             if (link.permissionId != null) {
                 ids.add(link.permissionId);
             }

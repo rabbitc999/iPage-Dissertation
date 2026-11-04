@@ -95,8 +95,8 @@ public class MetaService {
         ModelMeta meta = ModelMeta.of(modelClass);
 
         boolean view = canView(user, meta, key);
-        boolean edit = user.reaches(meta.editPermission()) || user.has("model:" + key + ":edit");
-        boolean delete = user.reaches(meta.deletePermission()) || user.has("model:" + key + ":delete");
+        boolean edit = canEdit(user, meta, key);
+        boolean delete = canDelete(user, meta, key);
         if (!view && !edit) {
             throw ApiException.forbidden("没有查看「" + meta.name() + "」的权限");
         }
@@ -250,7 +250,26 @@ public class MetaService {
      * @return 可查看返回 {@code true}
      */
     public boolean canView(LoginUser user, ModelMeta meta, String key) {
-        return user.reaches(meta.lookPermission()) || user.has("model:" + key + ":view");
+        String permission = meta.modelClass().getAnnotation(com.rabbitc.ipage.annotation.ModelClass.class).viewKey();
+        return permission.isBlank()
+                ? user.reaches(meta.lookPermission()) || user.has("model:" + key + ":view")
+                : user.has(permission);
+    }
+
+    /** Resolves write permissions consistently for model metadata and CRUD. */
+    public boolean canEdit(LoginUser user, ModelMeta meta, String key) {
+        String permission = meta.modelClass().getAnnotation(com.rabbitc.ipage.annotation.ModelClass.class).editKey();
+        return permission.isBlank()
+                ? user.reaches(meta.editPermission()) || user.has("model:" + key + ":edit")
+                : user.has(permission);
+    }
+
+    /** Resolves delete permissions consistently for model metadata and CRUD. */
+    public boolean canDelete(LoginUser user, ModelMeta meta, String key) {
+        String permission = meta.modelClass().getAnnotation(com.rabbitc.ipage.annotation.ModelClass.class).deleteKey();
+        return permission.isBlank()
+                ? user.reaches(meta.deletePermission()) || user.has("model:" + key + ":delete")
+                : user.has(permission);
     }
 
     private static boolean has(FieldDescriptor field, Class<? extends Annotation> type) {

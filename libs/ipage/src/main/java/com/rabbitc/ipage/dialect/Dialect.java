@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.dialect;
 
 /**
@@ -120,6 +121,12 @@ public interface Dialect {
      * @return 列类型，例如 {@code VARCHAR(255)}
      */
     String columnType(Class<?> javaType);
+
+    /** Maps a bounded string while preserving the ordinary mapping for other fields. */
+    default String columnType(Class<?> javaType, int maxLength) {
+        return javaType == String.class && maxLength > 0
+                ? "VARCHAR(" + maxLength + ")" : columnType(javaType);
+    }
 
     /**
      * 是否支持在一条语句里用 {@code CREATE TABLE IF NOT EXISTS}。

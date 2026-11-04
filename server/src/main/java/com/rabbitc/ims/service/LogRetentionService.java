@@ -58,7 +58,7 @@ public class LogRetentionService {
             throw ApiException.badRequest("日志保留天数须为 0–3650 的整数，0 表示长期保留");
         }
         sql.transaction(tx -> {
-            var existing = tx.<SysSetting>selectOne(Query.of(SysSetting.class).where("settingKey", KEY));
+            var existing = tx.selectOne(Query.of(SysSetting.class).where("settingKey", KEY));
             SysSetting setting = existing.orElseGet(SysSetting::new);
             setting.settingKey = KEY;
             setting.settingValue = days.toString();
@@ -101,7 +101,7 @@ public class LogRetentionService {
     }
 
     private int retentionDays() {
-        return sql.<SysSetting>selectOne(Query.of(SysSetting.class).where("settingKey", KEY))
+        return sql.selectOne(Query.of(SysSetting.class).where("settingKey", KEY))
                 .map(setting -> Integer.parseInt(setting.settingValue)).orElse(DEFAULT_DAYS);
     }
 }

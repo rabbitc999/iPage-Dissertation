@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改
 package com.rabbitc.ipage.reflect;
 
 import com.rabbitc.ipage.exception.ModelDefinitionException;
@@ -23,6 +24,7 @@ import java.util.regex.Pattern;
  */
 public final class TemplateRenderer {
 
+    private static final System.Logger LOG = System.getLogger(TemplateRenderer.class.getName());
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([^}]+)}");
     private static final Map<Class<?>, Map<String, Member>> MEMBER_CACHE = new ConcurrentHashMap<>();
 
@@ -50,6 +52,10 @@ public final class TemplateRenderer {
             String path = matcher.group(1).trim();
             String replacement = cache.computeIfAbsent(path, key -> {
                 Object value = resolve(root, key);
+                if (value == null && root != null) {
+                    LOG.log(System.Logger.Level.DEBUG, "Unresolved display path {0} on {1}",
+                            key, root.getClass().getName());
+                }
                 return value == null ? "" : String.valueOf(value);
             });
             matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));

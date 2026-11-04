@@ -13,6 +13,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.rabbitc.ims.service.TabularFiles;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -133,5 +139,35 @@ public class ModelController {
         int deleted = crud.deleteBatch(UserContext.require(), key,
                 request.ids() == null ? List.of() : request.ids());
         return Map.of("deleted", deleted);
+    }
+
+    /** Downloads the scoped list or an empty template for the model. */
+    @GetMapping("/transfer/export")
+    public ResponseEntity<byte[]> exportTable(@PathVariable String key, @RequestParam Map<String, String> params)
+            throws IOException {
+        TabularFiles format = TabularFiles.parse(params.getOrDefault("format", "csv"));
+        boolean template = "true".equals(params.get("template"));
+        byte[] data = crud.exportTable(UserContext.require(), key, params, format, template);
+        String mime = format == TabularFiles.CSV ? "text/csv;charset=UTF-8"
+                : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        String extension = format == TabularFiles.CSV ? ".csv" : ".xlsx";
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(mime))
+                .header("Content-Disposition", "attachment; filename=\"" + key + (template ? "-template" : "") + extension + "\"")
+                .body(data);
+    }
+
+    /** Validates the upload format before passing the rows to the CRUD service. */
+    @PostMapping(value = "/transfer/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> importTable(@PathVariable String key, @RequestParam("file") MultipartFile file)
+            throws IOException {
+        if (file.isEmpty() || file.getSize() > 5 * 1024 * 1024) {
+            throw ApiException.badRequest("请选择不超过 5 MB 的非空文件");
+        }
+        String filename = file.getOriginalFilename();
+        int dot = filename == null ? -1 : filename.lastIndexOf('.');
+        TabularFiles format = TabularFiles.parse(dot < 0 ? "" : filename.substring(dot + 1));
+        try (var input = file.getInputStream()) {
+            return Map.of("imported", crud.importTable(UserContext.require(), key, format, input));
+        }
     }
 }

@@ -100,6 +100,117 @@ public class CrudService {
 
     // ------------------------------------------------------------------ 读
 
+    /** Reuses the normal list scope and filters for file exports. */
+    private Query<Object> listQuery(LoginUser user, ModelMeta meta, Map<String, String> params) {
+        Query<Object> query = Query.of(meta, sql.dialect());
+        applyScope(user, meta, query);
+        applyKeyword(user, meta, query, params.get("kw"));
+        applyFilters(user, meta, query, params);
+        if (meta.modelClass() == Ticket.class) {
+            ticketFilters(query, params.get("from"), params.get("to"), params.get("department"));
+        }
+        applySort(user, meta, query, params.get("sort"), params.get("order"));
+
+        return query;
+    }
+
+    /** Exports permitted model columns, or creates an empty import template. */
+    public byte[] exportTable(LoginUser user, String key, Map<String, String> params,
+                              TabularFiles format, boolean template) throws java.io.IOException {
+        ModelMeta meta = registry.requireMeta(key);
+        requireView(user, meta, key);
+        if (template) requireEdit(user, meta, key);
+
+        List<String> headers = template ? new ArrayList<>(importColumns(user, meta).stream().map(FieldDescriptor::name).toList())
+                : meta.columnFields().stream()
+                    .filter(field -> field.visible() && field.lookPermission().granted(user.level()))
+                    .filter(field -> field.javaType() != byte[].class)
+                    .map(FieldDescriptor::name).toList();
+        if (template && meta.modelClass() == User.class) headers.add("password");
+        List<List<String>> rows = new ArrayList<>();
+        if (!template) {
+            Query<Object> query = listQuery(user, meta, params).limit(TabularFiles.MAX_ROWS + 1, 0);
+            List<Object> entities = sql.selectList(query);
+            if (entities.size() > TabularFiles.MAX_ROWS) {
+                throw ApiException.badRequest("一次最多导出 " + TabularFiles.MAX_ROWS + " 条记录，请缩小筛选范围");
+            }
+            for (Object entity : entities) {
+                Map<String, Object> row = toRow(user, meta, entity);
+                rows.add(headers.stream().map(name -> Objects.toString(row.get(name), "")).toList());
+            }
+        }
+        return format.write(headers, rows);
+    }
+
+    private List<FieldDescriptor> importColumns(LoginUser user, ModelMeta meta) {
+        return meta.columnFields().stream()
+                .filter(field -> field.type() != FieldType.MODEL_ID && !field.fixed() && field.javaType() != byte[].class)
+                .filter(field -> field.visible() && field.lookPermission().granted(user.level()))
+                .filter(field -> field.editPermission().granted(user.level()))
+                .toList();
+    }
+
+    /** Imports new records through the normal create path in a single transaction. */
+    public int importTable(LoginUser user, String key, TabularFiles format, java.io.InputStream input) {
+        ModelMeta meta = registry.requireMeta(key);
+        requireEdit(user, meta, key);
+        List<List<String>> table;
+        try {
+            table = format.read(input);
+        } catch (ApiException error) {
+            throw error;
+        } catch (java.io.IOException | RuntimeException error) {
+            throw ApiException.badRequest("无法读取文件，请检查文件格式和内容");
+        }
+        if (table.isEmpty()) throw ApiException.badRequest("文件缺少表头");
+        Map<String, FieldDescriptor> allowed = new LinkedHashMap<>();
+        importColumns(user, meta).forEach(field -> allowed.put(field.name(), field));
+        if (meta.modelClass() == User.class) allowed.put("password", null);
+        List<String> columns = new ArrayList<>();
+        for (String name : table.get(0)) {
+            String column = name.strip();
+            if (!allowed.containsKey(column) || columns.contains(column)) {
+                throw ApiException.badRequest("表头包含未知、不可导入或重复的字段：" + name);
+            }
+            columns.add(column);
+        }
+
+        int[] imported = {0};
+        sql.transaction(tx -> {
+            for (int index = 1; index < table.size(); index++) {
+                List<String> row = table.get(index);
+                if (row.stream().allMatch(String::isBlank)) continue;
+                if (row.size() > columns.size()) {
+                    throw ApiException.badRequest("第 " + (index + 1) + " 行的列数超过表头");
+                }
+                Map<String, Object> body = new LinkedHashMap<>();
+                for (int column = 0; column < row.size(); column++) {
+                    String name = columns.get(column);
+                    FieldDescriptor field = allowed.get(name);
+                    String value = row.get(column);
+                    if (value.isBlank()) continue;
+                    if (field != null && field.javaType() == LocalDateTime.class
+                            && value.length() > 10 && value.charAt(10) == ' ') {
+                        value = value.substring(0, 10) + "T" + value.substring(11);
+                    }
+                    if (field != null && field.javaType() == LocalDate.class
+                            && value.length() > 10 && value.charAt(10) == 'T') {
+                        value = value.substring(0, 10);
+                    }
+                    body.put(name, value);
+                }
+                try {
+                    create(user, key, body);
+                } catch (ApiException error) {
+                    throw new ApiException(error.status(), "第 " + (index + 1) + " 行：" + error.getMessage());
+                }
+                imported[0]++;
+            }
+        });
+        return imported[0];
+    }
+
+
     /**
      * 分页查询。
      *
@@ -112,14 +223,7 @@ public class CrudService {
         ModelMeta meta = registry.requireMeta(key);
         requireView(user, meta, key);
 
-        Query query = Query.of(meta, sql.dialect());
-        applyScope(user, meta, query);
-        applyKeyword(user, meta, query, params.get("kw"));
-        applyFilters(user, meta, query, params);
-        if (meta.modelClass() == Ticket.class) {
-            ticketFilters(query, params.get("from"), params.get("to"), params.get("department"));
-        }
-        applySort(user, meta, query, params.get("sort"), params.get("order"));
+        Query<Object> query = listQuery(user, meta, params);
 
         int page = number(params.get("page"), 1, 1, Integer.MAX_VALUE);
         int size = number(params.get("size"), DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
@@ -144,7 +248,7 @@ public class CrudService {
         if (!metaService.canView(user, meta, key)) {
             return 0;
         }
-        Query query = Query.of(meta, sql.dialect());
+        Query<Object> query = Query.of(meta, sql.dialect());
         applyScope(user, meta, query);
         return sql.count(query);
     }
@@ -171,13 +275,13 @@ public class CrudService {
     public List<Ticket> ticketsForReport(LoginUser user, String from, String to, String department) {
         ModelMeta meta = registry.requireMeta("ticket");
         requireView(user, meta, "ticket");
-        Query query = Query.of(meta, sql.dialect());
+        Query<Ticket> query = Query.of(Ticket.class, sql.dialect());
         applyScope(user, meta, query);
         ticketFilters(query, from, to, department);
         return sql.selectList(query.orderBy("createdAt", SortType.DESC).orderBy("id", SortType.ASC));
     }
 
-    private static void ticketFilters(Query query, String from, String to, String department) {
+    private static void ticketFilters(Query<?> query, String from, String to, String department) {
         LocalDate start = reportDate(from);
         LocalDate end = reportDate(to);
         if (start != null && end != null && end.isBefore(start)) {
@@ -314,7 +418,7 @@ public class CrudService {
 
     // ------------------------------------------------------------------ 查询组装
 
-    private void applyScope(LoginUser user, ModelMeta meta, Query query) {
+    private void applyScope(LoginUser user, ModelMeta meta, Query<?> query) {
         DataScope scope = user.dataScope();
         if (scope == null || scope == DataScope.ALL || user.isAdmin()) {
             return;
@@ -345,7 +449,7 @@ public class CrudService {
      * @param query 查询
      * @param kw    关键字
      */
-    private void applyKeyword(LoginUser user, ModelMeta meta, Query query, String kw) {
+    private void applyKeyword(LoginUser user, ModelMeta meta, Query<?> query, String kw) {
         if (kw == null || kw.isBlank()) {
             return;
         }
@@ -373,7 +477,7 @@ public class CrudService {
         query.in(meta.idField().name(), new ArrayList<>(ids));
     }
 
-    private void applyFilters(LoginUser user, ModelMeta meta, Query query, Map<String, String> params) {
+    private void applyFilters(LoginUser user, ModelMeta meta, Query<?> query, Map<String, String> params) {
         for (FieldDescriptor field : meta.fields()) {
             if (!field.isColumn() || !field.visible() || !field.lookPermission().granted(user.level())) {
                 continue;
@@ -388,7 +492,7 @@ public class CrudService {
         }
     }
 
-    private void applySort(LoginUser user, ModelMeta meta, Query query, String sort, String order) {
+    private void applySort(LoginUser user, ModelMeta meta, Query<?> query, String sort, String order) {
         String fieldName = sort == null || sort.isBlank() ? meta.idField().name() : sort;
         FieldDescriptor field = meta.field(fieldName)
                 .filter(candidate -> candidate.lookPermission().granted(user.level()))
@@ -496,13 +600,13 @@ public class CrudService {
     }
 
     private void requireEdit(LoginUser user, ModelMeta meta, String key) {
-        if (!user.reaches(meta.editPermission()) && !user.has("model:" + key + ":edit")) {
+        if (!metaService.canEdit(user, meta, key)) {
             throw ApiException.forbidden("没有编辑「" + meta.name() + "」的权限");
         }
     }
 
     private void requireDelete(LoginUser user, ModelMeta meta, String key) {
-        if (!user.reaches(meta.deletePermission()) && !user.has("model:" + key + ":delete")) {
+        if (!metaService.canDelete(user, meta, key)) {
             throw ApiException.forbidden("没有删除「" + meta.name() + "」的权限");
         }
     }
