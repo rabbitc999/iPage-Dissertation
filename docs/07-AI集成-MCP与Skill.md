@@ -1,6 +1,6 @@
 # 07 · AI 集成：MCP 与 Skill
 
-> AI 是**可选**能力：不配置 `IMS_AI_KEY` 时整个模块静默关闭，其余功能不受影响。
+> AI 是**可选**能力：新安装时模块默认关闭，其余功能不受影响。
 > 核心设计原则只有一句：**AI 与页面走同一套权限，AI 不能绕过任何校验。**
 
 ---
@@ -9,7 +9,7 @@
 
 ```
 浏览器  AiView.vue
-   │ POST /api/ai/chat  {message, allowTools}
+   │ POST /api/ai/chat/stream  {message, model, toolAccess, ...}
    ▼
 AiController（校验 ai:use）
    ▼
@@ -17,7 +17,7 @@ AiEngineManager
    ├─ sessions: Map<userId, Session>        ← 按用户隔离，串行处理
    └─ Session
         ├─ EmbedAiChat.Engine              ← 上游框架
-        │    ├─ 8 个 ims_* 工具（本仓库注册）
+        │    ├─ ims_* 宿主工具（业务和文件）
         │    ├─ MCP 工具（外部进程，stdio JSON-RPC）
         │    └─ Skill（纯文本指令，不执行脚本）
         └─ McpClient × N                   ← 每个启用的 MCP 一个子进程
@@ -31,33 +31,44 @@ CrudService（用当前 LoginUser）
 
 ## 2. 开关与配置
 
-```yaml
-ims:
-  ai:
-    enabled: ${IMS_AI_ENABLED:false}
-    provider: ${IMS_AI_PROVIDER:openai}
-    base-url: ${IMS_AI_BASE_URL:https://api.deepseek.com/v1}
-    model: ${IMS_AI_MODEL:deepseek-chat}
-    api-key: ${IMS_AI_KEY:}
-    max-tokens: 2048
-    context-budget: 16000
-    allow-tools: true
-    work-dir: ./data/ai
-```
+管理员打开「系统管理 → AI 模型管理」，为每个模型填写供应商模型 ID、OpenAI 兼容或 Anthropic 协议、服务地址、API Key 和最低角色等级。保存模型后点击「启用助手」。更新、停用或删除模型都会使旧会话失效，无需重启。
 
-| 项 | 说明 |
-| --- | --- |
-| `provider` | 目前按 OpenAI 协议发送；换 DeepSeek / 通义 / 本地 vLLM 只改 `base-url` + `model` |
-| `api-key` | 空则 `ready()` 为 false，接口返回 501 并给出中文原因 |
-| `context-budget` | 历史消息裁剪预算（token），超出时丢最早的 |
-| `allow-tools` | 全局工具开关；单个请求还可以再关（`allowTools:false`） |
-| `work-dir` | 内置 Skill 释放目录，默认 `server/data/ai` |
+- 管理员可为密钥命名，例如「研发部专用」。可保留默认范围、仅允许所选部门或员工账号，也可禁止所选对象。部门和账号任一匹配即命中名单，`ai:use` 和模型最低等级仍须满足。对话下拉框、聊天与历史接口都按该范围检查。
+- 新增模型时可选供应商预设自动填写协议与服务地址，再填写账号可用的模型 ID 和密钥。
+- API Key 仅接受写入，编辑留空可保留旧密钥。AES-256-GCM 加密后入库，`sk-` 密钥保留前缀并加密后半段，其他令牌整体加密。直接填写完整密钥，认证请求头按模型协议生成。主密钥存放在 `ims.ai.work-dir/model-keys.bin`，默认 `./data/ai/model-keys.bin`。
+- 管理页「关闭助手」隐藏入口并禁用对话接口。部署配置 `ims.ai.available: false` 还会移除模型管理入口及接口。
+- `ims.ai.max-tokens`、`ims.ai.context-budget` 和 `ims.ai.work-dir` 仍是部署参数。
 
 ---
 
+### 通过 MCP 上传业务附件
+
+网页对话中，选择图片或文件、启用工具并选择「可添加」或更高权限，打开「文件写入」，然后指定要关联的工单或资产。更新字段需要「可添加编辑」或「所有权限」。内置工具 `ims_attach_record_file` 可同时修改经授权的记录字段。上传结果也能在业务列表对应记录的「附件」中查看、下载或解除关联。
+
+外部 MCP 客户端可通过 stdio 启动仓库中的 `clients/cli/ims_mcp_attachments.py`。先用 `ims_cli.py login` 登录，或在客户端启动环境中传入当前用户的 `IMS_TOKEN`，然后配置命令：
+
+```json
+{
+  "command": "python",
+  "args": [
+    "/path/to/iPage-IMS/clients/cli/ims_mcp_attachments.py",
+    "--base", "http://127.0.0.1:8080",
+    "--directory", "/path/to/approved-uploads",
+    "--model-id", "IMS 模型配置 UUID",
+    "--tool-access", "ADD_EDIT"
+  ]
+}
+```
+
+工具 `ims_upload_record_file` 参数为 `model`（`ticket` 或 `asset`）、`recordId`、相对于上传目录的 `path`，以及可选 `values`。例如 `{"model":"ticket","recordId":"工单 UUID","path":"现场图片.png","values":{"description":"已上传现场图"}}`。附件单个上限 10MB，服务端验证模型使用权限、工具权限上限、记录编辑权限和数据范围。文件写入、关联及字段更新在同一事务提交。
+
+### 工具权限档位
+
+管理员为模型设置工具权限上限。对话默认「仅读取」，可显式选择「可添加」「可添加编辑」或「所有权限」，最高档才允许删除，并继续按业务权限检查。越界时会显示黄色提示，说明本轮档位和所需档位。无法确认读写性质的外部 MCP 工具只在管理员以「所有权限」运行时挂载。旧模型的权限上限初始为「仅读取」。
+
 ## 3. 内置工具一览
 
-8 个工具全部注册在 `AiEngineManager.registerTools()`，全部转调 `CrudService`：
+主要宿主工具在 `AiEngineManager.registerTools()` 注册。业务记录读写走 `CrudService`，文件工具走附件或个人设置服务。
 
 | 工具 | 参数 | 作用 |
 | --- | --- | --- |
@@ -69,6 +80,9 @@ ims:
 | `ims_update` | `model`, `id`, `values` | 修改（只改传入字段） |
 | `ims_delete` | `model`, `id` | 删除 |
 | `ims_stats` | — | 各模型可见行数 |
+| `ims_upload_text_file` | `name`, `text` | 生成当前用户可下载的私有文本文件 |
+| `ims_attach_record_file` | `model`, `recordId`, `fileId`, `values` | 将本轮附件关联到工单或资产，可同时更新记录 |
+| `ims_update_my_avatar` | `id` | 使用本轮上传的图片更新当前用户头像 |
 
 `id` 参数在 schema 里声明为 **string（UUID）**，工具调用时用 `args.get("id").getAsString()` 读取。
 
@@ -148,7 +162,7 @@ Skill 是**纯文本指令**（`SKILL.md`），加载后注入上下文，告诉
 
 `work-dir` 默认 `server/data/ai`。内置 Skill 在打包时放在
 `server/src/main/resources/ai/skills/ims-assistant/SKILL.md`，
-启动时由 `prepareWorkDir()` 释放到磁盘（已存在则跳过），所以首次启动开箱就能用。
+初始化 AI 会话时由 `prepareWorkDir()` 释放到磁盘，已有文件会保留。空库需要在 Skill 页面添加该目录并启用，才能加载该 Skill。
 
 ### 5.3 数据库配置
 
@@ -195,7 +209,7 @@ Skill 是**纯文本指令**（`SKILL.md`），加载后注入上下文，告诉
 | --- | --- |
 | 越权读写 | 工具走 `CrudService` + 当前 `LoginUser`，无旁路 |
 | 危险操作 | Skill 规则要求删除前确认；`ims_delete` 仍需服务端删除权限 |
-| 密钥泄漏 | `api-key` 只从环境变量读，不写进代码、不进 `/api/ai/status`（只回 `hasKey`） |
+| 密钥存储 | 管理端写入密钥并加密入库，读取接口返回 `hasKey` 等元数据 |
 | MCP 命令注入 | argv 数组直连 `exec`，不过 shell |
 | 上下文污染 | 每用户独立会话，`reset` 可清空 |
 | 资源泄漏 | 会话作废时关闭所有 MCP 子进程 |
@@ -209,9 +223,9 @@ Skill 是**纯文本指令**（`SKILL.md`），加载后注入上下文，告诉
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| `/api/ai/status` 返回 `enabled:false` | 没设 `IMS_AI_ENABLED` | 设环境变量后重启 |
-| `ready:false` 且 `reason` 提示缺 Key | `IMS_AI_KEY` 为空 | 填 Key |
+| `/api/ai/status` 返回 `enabled:false` | 模块未启用 | 检查部署开关，并在模型管理页启用助手 |
+| `ready:false` 且提示没有可用模型 | 模型未启用或角色等级不足 | 在模型管理页检查可用模型与角色权限 |
 | `mcp[].ok:false` | 命令错、Python 不存在、脚本路径不对 | 看 `error`；命令里用绝对路径更稳 |
-| 模型说"没有工具" | `allow-tools:false` 或本轮 `allowTools:false` | 检查两处开关 |
+| 模型说没有工具 | 模型禁用工具或本轮关闭工具 | 检查模型设置、对话开关和当前权限档位 |
 | 改了 MCP 配置没生效 | 保存后未触发事件（直接改库） | 通过界面改，或调 `POST /api/ai/reload` |
 | 回答很慢 | 用了大模型 + 长上下文 | 调小 `max-tokens` / `context-budget` |

@@ -5,6 +5,8 @@
  * 数据来自 {@code GET /api/stats}：统计卡、工单状态分布、最近审计。
  * 所有计数都已按当前用户的数据范围过滤，因此不同账号看到的数字不同。
  */
+import { features } from '../stores/features'
+import { can } from '../stores/auth'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/http'
 import { auth } from '../stores/auth'
@@ -185,7 +187,7 @@ onMounted(async () => {
       </div>
 
       <div class="card quick">
-        <div class="quick-item">
+        <div v-if="features.ai && can('ai:use')" class="quick-item">
           <div>
             <b>用一句话维护数据</b>
             <div class="muted small">AI 助手可以查询、新增、修改数据，删除前会向你确认。</div>
@@ -216,9 +218,9 @@ onMounted(async () => {
 .arrow { opacity: 0.4; }
 .stat-value { font-size: 30px; font-weight: 700; margin: 6px 0 2px; letter-spacing: -0.02em; }
 
-.split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .panel { padding: 16px 18px; display: flex; flex-direction: column; }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
 .panel-head h3 { font-size: 15px; }
 .panel-foot { margin-top: auto; padding-top: 12px; font-size: 13px; }
 
@@ -242,12 +244,12 @@ onMounted(async () => {
 .audit li .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .quick { margin-top: 14px; padding: 6px 18px; }
-.quick-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.quick-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .quick-item:last-child { border-bottom: none; }
 
 .error-card { padding: 18px; color: var(--danger); background: var(--danger-weak); border-color: transparent; }
 
 @media (max-width: 960px) {
-  .split { grid-template-columns: 1fr; }
+  .split { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

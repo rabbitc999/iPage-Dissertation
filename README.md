@@ -29,7 +29,7 @@
 | 权限管理 | RBAC 三层：**模型等级**（注解声明）× **角色权限点**（页面配置）× **数据范围**（全库/本部门/仅本人） |
 | 自定义界面 | 前端按服务端 schema 渲染表格与表单；列显隐、每页条数按用户持久化 |
 | 审计日志 | 所有写操作自动落库，工作台可查最近操作 |
-| AI 助手（可选） | 内嵌 AI 对话 + 8 个 `ims_*` 工具直接维护数据，MCP 服务与 Skill 热装配，**AI 与页面走同一套权限** |
+| AI 助手（可选） | 内嵌 AI 对话和 `ims_*` 工具直接维护数据，MCP 服务与 Skill 热装配，**AI 与页面走同一套权限** |
 | 无状态认证 | HMAC 签名令牌，改密码/停用账号即时踢下线（令牌版本机制） |
 | UUID 主键 | 全部表使用 UUID v4 字符串主键（引擎在插入时自动生成），不可枚举、可离线生成、合并安全 |
 | 密码安全 | PBKDF2-HMAC-SHA256（210,000 次迭代）+ 每用户随机盐 + 登录时自动升级旧哈希 |
@@ -46,6 +46,8 @@
 
 ### 1. 编译并启动后端（自带前端，单端口 8080）
 
+Windows 可双击仓库根目录的 `run-ims.cmd`。它会构建前端和后端，在端口被旧的 IMS 实例占用时结束该实例，并用独立 JAR 副本启动服务。首次启动后手动输入初始账号。
+
 ```bash
 # 需要 JDK 17+ 和 Node.js 22+
 (cd web && npm ci && npm run build)
@@ -53,10 +55,10 @@
 cd server && java -jar target/ims-server-1.0.0.jar
 ```
 
-首次启动会自动建表并写入演示数据，看到这行就绪：
+首次启动会自动建表并创建超级管理员，看到这行即可登录：
 
 ```
-[ims] 演示数据完成：账号 admin/admin123、manager/manager123、staff/staff123
+[ims] 已创建初始超级管理员 admin
 ```
 
 浏览器打开 <http://127.0.0.1:8080> 即可。
@@ -64,7 +66,7 @@ cd server && java -jar target/ims-server-1.0.0.jar
 ### 2. 前端开发模式（可选，热更新）
 
 ```bash
-cd web && npm install && npm run dev   # http://127.0.0.1:5173，/api 代理到 8080
+cd web && npm ci && npm run dev   # http://127.0.0.1:5173，/api 代理到 8080
 ```
 
 ### 3. IDEA 里跑
@@ -73,6 +75,8 @@ cd web && npm install && npm run dev   # http://127.0.0.1:5173，/api 代理到 
 
 - `ims-server`：启动后端（8080，开发时配合前端开发服务）
 - `ims-web (dev)`：前端开发服务（5173，代理 /api）
+
+Windows 双击 `run-ims-dev.cmd` 或运行 `run-ims.cmd --dev` 可自动准备后端并打开热更新页面。
 - `ims-web (build)`：构建到 `web/dist`，由 Maven 打入服务端 JAR
 
 ## 工单报表与数据约束
@@ -111,26 +115,19 @@ Redis 默认关闭。启用后，公开接口 `GET /api/brand` 缓存站点名�
 
 刷新只作用于当前应用的品牌缓存键。如果 Redis 在保存或刷新时不可用，当前页面可用数据库结果更新，其他实例可能在缓存到期前读到旧值。
 
-## 演示账号
+## 初始超级管理员
 
 | 账号 | 密码 | 角色 | 数据范围 |
 | --- | --- | --- | --- |
-| `admin` | `admin123` | 超级管理员（等级 4） | 全部数据 |
-| `manager` | `manager123` | 部门主管（等级 2） | 本部门 |
-| `staff` | `staff123` | 普通员工（等级 1） | 仅本人创建 |
+| `admin` | `123456` | 超级管理员（等级 4） | 全部数据 |
 
-> 生产环境部署后请立即修改这三个密码。
+> 生产环境部署后请立即修改初始密码。
 
 ## 开启 AI 助手
 
-AI 默认关闭，配置环境变量后重启即可：
+AI 助手默认关闭。管理员登录后打开「系统管理 → AI 模型管理」，添加模型并填写供应商 API Key，保存后点击「启用助手」。每个模型可设置独立的协议、服务地址、最低角色等级、视觉能力和工具权限。关闭模块会隐藏普通用户的入口并停用对话，模型设置可以继续管理。部署时如需隐藏管理入口并停用整个模块，将 `application.yml` 中的 `ims.ai.available` 设为 `false` 后重启。
 
-```bash
-export IMS_AI_ENABLED=true
-export IMS_AI_KEY=sk-xxxxxxxx          # 你的 API Key
-export IMS_AI_BASE_URL=https://api.deepseek.com/v1   # 任意 OpenAI 兼容端点
-export IMS_AI_MODEL=deepseek-chat
-```
+模型和模块开关保存在数据库中。API Key 的密文也存于数据库，解密主密钥首次保存模型时生成在 `server/data/ai/model-keys.bin`（默认从 `server` 目录启动）。迁移或恢复时请单独保护并保留这个文件。此前通过 `IMS_AI_*` 配置的模型需要在管理页面录入一次。
 
 进入「智能助手」页：
 
@@ -156,15 +153,15 @@ java -jar ims-server.jar --spring.profiles.active=postgres \
 表结构由 iPage 自动创建（只建表、只补列，不改类型、不删列）。
 > 注意：从自增整数主键的旧版本升级到 UUID 主键需要**重建数据库**（或自行迁移数据），iPage 不会修改已有列的类型。
 
+## 运行日志
+
+Windows 的 `run-ims.cmd` 使用 UTF-8 控制台。运行日志同时写入 `server/logs/ims.log`，按天或达到 20 MB 时滚动到同目录的压缩归档。超级管理员可在「系统管理 → 运行日志」设置归档保留天数，默认 30 天，0 表示长期保留。
+
 ## 常用环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `IMS_SECRET` | 开发默认值 | 令牌签名密钥，**生产必改**（`openssl rand -base64 32`） |
-| `IMS_AI_ENABLED` | `false` | 是否开启 AI 助手 |
-| `IMS_AI_KEY` | 空 | AI 服务 API Key |
-| `IMS_AI_BASE_URL` | DeepSeek | OpenAI 兼容端点 |
-| `IMS_AI_MODEL` | `deepseek-chat` | 模型名 |
 | `MYSQL_USER` / `MYSQL_PASSWORD` | `root` / `123456` | MySQL 凭据 |
 | `PG_USER` / `PG_PASSWORD` | `postgres` / `123456` | PostgreSQL 凭据 |
 
@@ -183,7 +180,7 @@ ipage-ims/
 │   │   ├── service/       # 通用 CRUD、钩子、审计
 │   │   ├── security/      # 登录、令牌、密码、拦截器
 │   │   ├── ai/            # AI 引擎装配与 ims_* 工具
-│   │   ├── seed/          # 建表 + 演示数据
+│   │   ├── seed/          # 建表 + 初始账号
 │   │   └── web/           # REST 控制器
 │   ├── mcp/demo_server.py # MCP 演示服务
 │   └── src/main/resources/
@@ -234,7 +231,7 @@ ipage-ims/
 
 ```bash
 cd clients/cli
-python ims_cli.py login --user admin --password admin123
+python ims_cli.py login --user admin --password 123456
 python ims_cli.py list employee --kw 苏
 ```
 

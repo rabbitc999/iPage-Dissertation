@@ -16,7 +16,7 @@
 POST /api/auth/login
 Content-Type: application/json
 
-{ "username": "admin", "password": "admin123" }
+{ "username": "admin", "password": "123456" }
 ```
 
 ```json
@@ -49,7 +49,7 @@ GET /api/auth/me
 ```http
 POST /api/auth/password
 
-{ "oldPassword": "admin123", "newPassword": "新密码至少6位" }
+{ "oldPassword": "123456", "newPassword": "新密码至少6位" }
 ```
 成功返回 `{"token": "..."}`（**旧令牌已失效，必须换成新令牌**）。
 
@@ -267,8 +267,8 @@ Authorization 头，头像、品牌图必须裸地址可访问），文件主键
 POST /api/files                          # 登录用户可用，multipart 字段名固定 file
 → {"id":"...","name":"a.png","contentType":"image/png","size":70,"url":"/api/files/<id>/raw"}
 
-GET  /api/files/{id}/raw                 # 公开，内联（Content-Disposition: inline），可缓存 24h
-GET  /api/files/{id}/download            # 需登录，附件下载
+GET  /api/files/{id}/raw                 # 普通公开文件可内联读取，私有附件返回 404
+GET  /api/files/{id}/download            # 需登录，私有附件只允许上传者下载
 DELETE /api/files/{id}                   # 上传者本人或管理员
 ```
 
@@ -356,43 +356,64 @@ GET /api/stats
 
 ## 9. AI
 
-### 9.1 状态
+### 9.1 模块与可用模型
+
+- `GET /api/ai/module` 返回 `available`（部署允许）和 `enabled`（当前启用）。
+- `GET /api/ai/status` 返回就绪状态及当前账号可用的 `models[]`。每项包含配置 `id`、`name`、`provider`、`vision`、`allowTools`、`maxToolAccess`。选择模型时使用配置 `id`。
+
+### 9.2 对话与停止
 
 ```http
-GET /api/ai/status
-```
-```json
+POST /api/ai/chat
+Content-Type: application/json
+
 {
-  "enabled": false, "ready": false, "provider": "openai", "model": "deepseek-chat",
-  "hasKey": false, "allowTools": true,
-  "reason": "AI 未启用：设置环境变量 IMS_AI_ENABLED=true 与 IMS_AI_KEY 后重启",
-  "tools": [], "mcp": [], "skills": []
+  "message": "现在有多少资产？",
+  "model": "<模型配置 UUID>",
+  "runId": "<客户端生成的本轮标识>",
+  "attachments": [],
+  "allowTools": true,
+  "toolAccess": "READ_ONLY",
+  "allowFileWrites": false
 }
 ```
-启用后 `tools` 会列出 8 个 `ims_*` 工具与已挂载的 MCP 工具。
 
-### 9.2 对话
+同步接口返回 `reply`、`audit` 和 `tools`。网页使用同请求体的 `POST /api/ai/chat/stream`，响应是 NDJSON。客户端按行处理 `started`、`assistant`、`tool`、`cancelled`、`done`、`error`。错误事件可携带 `source`、`status`、`message`、`detail`，用于区分模型供应商和 IMS 错误。工具越权在工具审计结果中以 `tool_permission_denied` 标识。
 
-```http
-POST /api/ai/chat          # 需要 ai:use
-{ "message": "现在有多少资产？", "allowTools": true }
-→ {
-    "reply": "当前共有 8 条资产记录……",
-    "audit": [ { "tool": "ims_stats", "arguments": {...}, "ok": true } ],
-    "tools": ["ims_list_models", "ims_query", "..."]
-  }
-```
+`POST /api/ai/cancel` 请求体为 `{"runId":"<本轮标识>"}`，停止会在后续请求或工具执行前生效。已完成的写入会保留。对话相关接口要求 `ai:use`。
 
-会话按用户隔离；`allowTools = false` 时本轮只做纯文本回答，不调用工具。
-模型调用失败返回 `502 {"message":"模型调用失败：..."}`。
+### 9.3 历史与管理
 
-### 9.3 历史 / 重置 / 重载
+| 方法与路径 | 作用 |
+| --- | --- |
+| `GET /api/ai/history` | 当前用户会话归档 |
+| `POST /api/ai/reset` | 清空当前用户对话 |
+| `POST /api/ai/reload` | 重建 AI 会话，需要 `ai:manage` |
+| `GET /api/ai/config` | 管理员查看模块状态与模型配置 |
+| `PUT /api/ai/config/module` | 管理员以 `{"enabled":true}` 启用模块 |
+| `GET /api/ai/config/access-options` | 管理员读取可选部门和员工登录账号 |
+| `POST /api/ai/config/models` | 管理员新增模型 |
+| `PUT /api/ai/config/models/{id}` | 管理员编辑模型，`apiKey` 留空时保留原密钥 |
+| `DELETE /api/ai/config/models/{id}` | 管理员删除模型 |
 
-```http
-GET  /api/ai/history     → {"version":1,"messages":[...]}   # 当前用户会话归档
-POST /api/ai/reset       → 清空当前用户对话
-POST /api/ai/reload      → 重新装配 MCP 与 Skill（需要 ai:manage）
-```
+模型配置保存请求支持 `keyName`、`keyAccess`（`mode`、`departmentIds`、`userIds`）和 `maxToolAccess`。详情见 [AI 配置](07-AI集成-MCP与Skill.md)。
+
+### 9.4 对话和业务附件
+
+- `POST /api/files?chatPrivate=true` 用 multipart 的 `file` 上传私有对话附件。对话请求通过 `attachments` 传附件 ID，每轮最多四件。
+- 工单或资产的附件基路径为 `/api/models/{model}/{recordId}/attachments`，支持列表 `GET`、附件下载 `GET /{attachmentId}/download`、解除关联 `DELETE /{attachmentId}`。
+- 在基路径上 `POST` 可上传并关联附件。查询参数传 `aiModelId`、`toolAccess`，multipart 传 `file` 和可选 JSON 对象字符串 `values`。上传与字段更新使用同一事务，并按记录权限和 AI 工具档位校验。
+
+### 9.5 超级管理员运维
+
+| 方法与路径 | 请求或返回 |
+| --- | --- |
+| `GET /api/system/log-settings` | 返回 `retentionDays` 和当前日志路径 `logFile` |
+| `PUT /api/system/log-settings` | 传 `{"retentionDays":30}`，范围 0–3650，0 为长期保留 |
+| `POST /api/system/data-reset/verify` | 传当前账号 `password`，返回一次性 `token` 与 `expiresInSeconds` |
+| `POST /api/system/data-reset/execute` | 传 `token` 与 `confirmation: "清空所有数据"`，返回删除条数 `deleted` |
+
+清空成功后旧会话失效，操作者用原账号密码重新登录。先在独立测试库验证客户端实现。
 
 ---
 
@@ -403,7 +424,7 @@ BASE=http://127.0.0.1:8080
 
 TOKEN=$(curl -s -X POST $BASE/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' \
+  -d '{"username":"admin","password":"123456"}' \
   | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
 
 curl -s $BASE/api/nav -H "Authorization: Bearer $TOKEN"

@@ -31,6 +31,50 @@ const loading = ref(false)
 const error = ref('')
 const selected = ref([])
 const columnDialog = ref(false)
+const attachmentDialog = ref(null)
+const attachmentBusy = ref(false)
+const supportsAttachments = computed(() => schema.value?.supportsAttachments === true)
+
+async function openAttachments(row) {
+  const path = `/models/${key.value}/${row.id}/attachments`
+  const panel = { path, files: [], loading: true }
+  attachmentDialog.value = panel
+  try {
+    const files = await api(path)
+    if (attachmentDialog.value?.path === path) attachmentDialog.value = { path, files, loading: false }
+  } catch (error) {
+    if (attachmentDialog.value?.path === path) attachmentDialog.value = null
+    toastError(error)
+  }
+}
+
+async function downloadAttachment(file) {
+  try {
+    const blob = await api(`${attachmentDialog.value.path}/${file.id}/download`, { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.name
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    toastError(error)
+  }
+}
+
+async function detachAttachment(file) {
+  if (attachmentBusy.value || !window.confirm(`解除「${file.name}」与此记录的关联？`)) return
+  const panel = attachmentDialog.value
+  attachmentBusy.value = true
+  try {
+    await api(`${panel.path}/${file.id}`, { method: 'DELETE' })
+    panel.files = panel.files.filter(item => item.id !== file.id)
+  } catch (error) {
+    toastError(error)
+  } finally {
+    attachmentBusy.value = false
+  }
+}
 const pendingVisible = ref([])
 const pendingSize = ref(20)
 
@@ -320,6 +364,7 @@ watch([key, () => route.query.from, () => route.query.to, () => route.query.depa
   kw.value = ''
   filters.value = []
   sort.value = ''
+  attachmentDialog.value = null
   schema.value = null
   bootstrap()
 })
@@ -356,7 +401,7 @@ onUnmounted(() => clearTimeout(hideTimer))
           <span v-if="schema.permissions.create || schema.permissions.edit"> · 可编辑</span>
         </div>
       </div>
-      <div class="row">
+      <div class="row wrap">
         <button class="btn" @click="openColumns">列设置</button>
         <button class="btn" :disabled="loading" @click="reload">刷新</button>
         <button v-if="canCreate" class="btn primary" @click="openCreate">新增{{ schema.name }}</button>
@@ -425,7 +470,7 @@ onUnmounted(() => clearTimeout(hideTimer))
                 {{ field.text }}
                 <span v-if="sort === field.name" class="muted">{{ order === 'asc' ? '↑' : '↓' }}</span>
               </th>
-              <th v-if="canEdit || canDelete" style="width: 130px">操作</th>
+              <th v-if="canEdit || canDelete || supportsAttachments" style="width: 130px">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -448,7 +493,8 @@ onUnmounted(() => clearTimeout(hideTimer))
                 <span v-else-if="field.type === 'IMAGE'" class="muted">—</span>
                 <span v-else>{{ cell(row, field) }}</span>
               </td>
-              <td v-if="canEdit || canDelete">
+              <td v-if="canEdit || canDelete || supportsAttachments">
+                <button v-if="supportsAttachments" class="btn ghost sm" @click="openAttachments(row)">附件</button>
                 <button v-if="canEdit" class="btn ghost sm" @click="openEdit(row)">编辑</button>
                 <button v-if="canDelete" class="btn ghost sm danger-text" @click="remove(row)">删除</button>
               </td>
@@ -476,6 +522,25 @@ onUnmounted(() => clearTimeout(hideTimer))
       @submit="save"
       @cancel="dialog.open = false"
     />
+
+    <div v-if="attachmentDialog" class="modal-mask" @mousedown.self="attachmentDialog = null">
+      <div class="modal narrow" role="dialog" aria-label="业务附件">
+        <header>
+          <h3>业务附件</h3>
+          <button class="btn ghost sm" @click="attachmentDialog = null">关闭</button>
+        </header>
+        <div class="body">
+          <p v-if="attachmentDialog.loading" class="muted small">正在读取附件…</p>
+          <p v-else-if="!attachmentDialog.files.length" class="muted small">此记录暂无附件。</p>
+          <div v-for="file in attachmentDialog.files" :key="file.id" class="row wrap">
+            <span class="grow">{{ file.name }}</span>
+            <button class="btn ghost sm" @click="downloadAttachment(file)">下载</button>
+            <button v-if="canEdit" class="btn ghost sm danger-text" :disabled="attachmentBusy"
+                    @click="detachAttachment(file)">解除关联</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="columnDialog" class="modal-mask" @mousedown.self="columnDialog = false">
       <div class="modal narrow">

@@ -1,8 +1,11 @@
 package com.rabbitc.ims.web;
 
+import com.rabbitc.ims.ai.AiConfiguration;
 import com.rabbitc.ims.ai.AiEngineManager;
+import com.rabbitc.ims.enums.ToolAccess;
 import com.rabbitc.ims.security.RequirePermission;
 import com.rabbitc.ims.security.UserContext;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,17 +24,20 @@ import java.util.Map;
  * @since 1.0
  */
 @RestController
+@ConditionalOnProperty(prefix = "ims.ai", name = "available", havingValue = "true", matchIfMissing = true)
 @RequestMapping("/api/ai")
 public class AiController {
 
     private final AiEngineManager manager;
+    private final AiConfiguration configuration;
 
     /**
      * 构造控制器。
      *
      * @param manager 会话管理器
      */
-    public AiController(AiEngineManager manager) {
+    public AiController(AiEngineManager manager, AiConfiguration configuration) {
+        this.configuration = configuration;
         this.manager = manager;
     }
 
@@ -42,7 +48,7 @@ public class AiController {
      * @param allowTools 是否允许模型调用工具
      */
     public record ChatRequest(String message, Boolean allowTools, String model, String runId,
-                              java.util.List<String> attachments, Boolean allowFileWrites) {
+                              java.util.List<String> attachments, Boolean allowFileWrites, ToolAccess toolAccess) {
     }
 
     /**
@@ -66,7 +72,7 @@ public class AiController {
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         boolean allowTools = request.allowTools() == null || request.allowTools();
         return manager.chat(UserContext.require(), request.message(), allowTools, request.model(),
-                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), event -> {});
+                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), event -> {});
     }
 
     /**
@@ -92,7 +98,7 @@ public class AiController {
         };
         try {
             manager.chat(user, request.message(), request.allowTools() == null || request.allowTools(),
-                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), emit);
+                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), emit);
         } catch (Exception error) {
             if (!writer.checkError()) {
                 if (error instanceof AiEngineManager.ModelFailure failure) {
@@ -147,6 +153,7 @@ public class AiController {
     @PostMapping("/reload")
     @RequirePermission("ai:manage")
     public Map<String, Object> reload() {
+        configuration.requireEnabled();
         manager.invalidateAll();
         return Map.of("ok", true);
     }

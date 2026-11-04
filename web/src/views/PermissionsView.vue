@@ -285,7 +285,7 @@ onMounted(async () => {
 .group-block { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
 .group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .check-line { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
-.perm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.perm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 8px; }
 .perm-item {
   display: flex;
   align-items: flex-start;

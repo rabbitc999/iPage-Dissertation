@@ -48,8 +48,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (user.tokenVersion() != claim.version()) {
             throw ApiException.unauthorized("登录状态已失效，请重新登录");
         }
-        UserContext.set(user);
         checkAnnotations(handler, user);
+        UserContext.set(user);
         return true;
     }
 

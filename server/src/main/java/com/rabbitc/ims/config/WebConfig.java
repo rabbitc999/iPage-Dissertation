@@ -1,6 +1,8 @@
 package com.rabbitc.ims.config;
 
 import com.rabbitc.ims.security.AuthInterceptor;
+import com.rabbitc.ims.service.DataMaintenanceGate;
+import com.rabbitc.ims.web.DataResetController;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -19,18 +21,23 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
 
     private final AuthInterceptor authInterceptor;
+    private final DataMaintenanceGate maintenance;
 
     /**
      * 构造配置。
      *
      * @param authInterceptor 鉴权拦截器
      */
-    public WebConfig(AuthInterceptor authInterceptor) {
+    public WebConfig(AuthInterceptor authInterceptor, DataMaintenanceGate maintenance) {
+        this.maintenance = maintenance;
         this.authInterceptor = authInterceptor;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(maintenance)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns(DataResetController.EXECUTE_PATH, "/api/health");
         registry.addInterceptor(authInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/api/auth/login", "/api/health",

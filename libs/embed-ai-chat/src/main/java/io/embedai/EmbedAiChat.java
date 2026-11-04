@@ -1,5 +1,6 @@
 // 本文件已被 iPage-IMS 修改：增加逐消息事件回调，保留工具调用期间的助手回复。
 // 本文件已被 iPage-IMS 修改：支持本轮视觉附件和工具调用前的协作取消。
+// 本文件已被 iPage-IMS 修改：宿主可筛选工具，并在每次执行前校验权限。
 package io.embedai;
 
 import com.google.gson.*;
@@ -690,6 +691,12 @@ public final class EmbedAiChat {
   }
 
   /** 核心引擎。宿主可单独使用，不必运行 Console。 历史 JSON 可直接嵌入任意宿主项目；allowTools 默认为 false。 */
+  public static final class ToolPermissionDenied extends RuntimeException {
+    public ToolPermissionDenied(String message) {
+      super(message);
+    }
+  }
+
   public static final class Engine {
 
     /** 模型参数，调用 send 前由宿主配置。 */
@@ -697,6 +704,9 @@ public final class EmbedAiChat {
 
     /** 默认关闭；开启后允许模型及手动入口执行已注册工具。 */
     public boolean allowTools = false;
+
+    /** 返回 null 表示可用，否则返回宿主提供的权限拒绝原因。 */
+    public java.util.function.Function<String, String> toolDenial = name -> null;
 
     private final Http http;
 
@@ -857,6 +867,8 @@ public final class EmbedAiChat {
      */
     public JsonElement invoke(String name, JsonObject args) throws Exception {
       require(allowTools, "Tool calls disabled");
+      String denial = toolDenial.apply(name);
+      if (denial != null) throw new ToolPermissionDenied(denial);
       Tool t = registry.get(name);
       require(t != null, "Unknown tool: " + name);
       // 先验证参数再触发宿主操作，避免回调执行后才发现参数非法。
@@ -988,6 +1000,7 @@ public final class EmbedAiChat {
           // 供应商协议与 MCP 的 schema 字段不同，在网络边界显式转换。
           JsonArray definitions = new JsonArray();
           for (Tool t : registry.values()) {
+            if (toolDenial.apply(t.name()) != null) continue;
             definitions.add(
                 object(
                     "name", t.name(), "description", t.description(), "input_schema", t.schema()));
@@ -1003,6 +1016,7 @@ public final class EmbedAiChat {
         if (withTools && allowTools && !registry.isEmpty()) {
           JsonArray definitions = new JsonArray();
           for (Tool t : registry.values()) {
+            if (toolDenial.apply(t.name()) != null) continue;
             definitions.add(
                 object(
                     "type",
@@ -1158,6 +1172,8 @@ public final class EmbedAiChat {
                     && value.getAsJsonObject().has("isError")
                     && value.getAsJsonObject().get("isError").getAsBoolean();
             result = object("ok", !failed, "result", value);
+          } catch (ToolPermissionDenied error) {
+            result = object("ok", false, "code", "tool_permission_denied", "error", error.getMessage());
           } catch (Exception error) {
             result = object("ok", false, "error", error.getMessage());
           }

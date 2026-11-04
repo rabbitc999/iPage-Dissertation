@@ -51,22 +51,23 @@ ims:
     queue: ${IMS_RABBITMQ_QUEUE:ims.business.events}
 
   ai:
-    enabled: ${IMS_AI_ENABLED:false}
-    provider: ${IMS_AI_PROVIDER:openai}
-    base-url: ${IMS_AI_BASE_URL:https://api.deepseek.com/v1}
-    model: ${IMS_AI_MODEL:deepseek-chat}
-    # 可选模型共用上面的供应商地址和下面的 API Key。按实际模型 ID 配置。
-    # models:
-    #   "[your-vision-model-id]":
-    #     min-level: 2
-    #     vision: true
-    api-key: ${IMS_AI_KEY:}
+    available: true # false 时移除管理入口，并停用对话
     max-tokens: 2048
     context-budget: 16000
-    allow-tools: true
     work-dir: ./data/ai
 
 logging:
+  charset:
+    console: UTF-8
+    file: UTF-8
+  file:
+    name: ./logs/ims.log
+  logback:
+    rollingpolicy:
+      file-name-pattern: '${logging.file.name}.%d{yyyy-MM-dd}.%i.gz'
+      max-file-size: 20MB
+      # 历史日志统一由数据库保留策略清理。
+      max-history: 0
   level:
     root: info
     com.rabbitc.ims: info

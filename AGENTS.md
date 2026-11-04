@@ -179,7 +179,7 @@ public enum CustomerLevel {
 ```bash
 TOKEN=$(curl -s -X POST localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
+  -d '{"username":"admin","password":"123456"}' | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
 
 curl -s localhost:8080/api/models/customer/schema -H "Authorization: Bearer $TOKEN"   # 应返回字段定义
 curl -s -X POST localhost:8080/api/models/customer \
@@ -189,7 +189,7 @@ curl -s -X POST localhost:8080/api/models/customer \
 
 前端刷新即出现「业务数据 → 客户」（分组由表名前缀决定：`ims_` → 业务数据，`sys_` → 系统管理，`ai_` → 智能助手）。
 
-**可选第 5 步**：需要演示数据就加到 `seed/DataInitializer.seed()`（注意只在用户表为空时执行）。
+**可选第 5 步**：在隔离测试库准备示例数据，空库初始化由 `seed/DataInitializer` 创建初始超级管理员和内置权限。
 需要走特殊逻辑就加一个 `ModelHook`（见 E）。
 
 ---
@@ -353,7 +353,7 @@ cd server && java -jar target/ims-server-1.0.0.jar
 curl -s localhost:8080/api/health                       # {"status":"ok"}
 curl -s -X POST localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}'        # 有 token
+  -d '{"username":"admin","password":"123456"}'        # 有 token
 curl -s localhost:8080/api/nav -H "Authorization: Bearer $TOKEN"   # 新模型出现在正确分组
 ```
 
@@ -394,7 +394,7 @@ curl -s localhost:8080/api/nav -H "Authorization: Bearer $TOKEN"   # 新模型�
 | 菜单分组从哪来 | `meta/ModelRegistry.groupOf()`（按表名前缀） |
 | 前端表单长什么样 | `meta/MetaService.describe()` + `web/src/components/DataForm.vue` |
 | AI 有哪些工具 | `ai/AiEngineManager.registerTools()` |
-| 演示数据 | `seed/DataInitializer` |
+| 初始超级管理员与内置角色 | `seed/DataInitializer` |
 | 独立客户端怎么对接 | `clients/cli/ims_cli.py` + `docs/10-客户端开发指南.md` |
 
 ---

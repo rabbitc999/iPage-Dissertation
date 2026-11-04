@@ -73,7 +73,8 @@ public class SettingController {
     public Map<String, Object> all() {
         Map<String, Object> result = new LinkedHashMap<>();
         DEFINED_KEYS.forEach((key, defaultValue) -> result.put(key, defaultValue));
-        findAll().forEach(setting -> result.put(setting.settingKey, setting.settingValue));
+        findAll().stream().filter(setting -> DEFINED_KEYS.containsKey(setting.settingKey))
+                .forEach(setting -> result.put(setting.settingKey, setting.settingValue));
         return result;
     }
 

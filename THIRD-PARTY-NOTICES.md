@@ -30,7 +30,7 @@ Apache-2.0 与 MIT 兼容，可以放心一起分发。**使用、修改、闭�
 | 仓库 | GitHub：<https://github.com/rabbitc999/EmbedAiChat> |
 | 复制自提交 | `bd63c8de27257f5bc163ef8e11fc68402146a6f9`（2026-11-03） |
 | 许可证 | AGPL-3.0，全文见 `libs/embed-ai-chat/LICENSE.txt` |
-| 是否修改 | 已由 iPage-IMS 修改（2026-11-04）：增加同步消息事件回调与 assistant_reply / assistant_end 工具，保存并输出工具调用期间的助手回复；保留原 send 接口，并新增本轮多模态消息、协作取消入口和模型服务 HTTP 状态异常 |
+| 是否修改 | 已由 iPage-IMS 修改（2026-11-04）：增加同步消息事件回调与 assistant_reply / assistant_end 工具，保存并输出工具调用期间的助手回复；保留原 send 接口，并新增本轮多模态消息、协作取消入口、模型服务 HTTP 状态异常与宿主工具授权校验 |
 | 义务 | 强著佐权：分发 + **通过网络提供服务** 都触发源码开放义务 |
 
 #### 这是本仓库唯一的许可证冲突点，必须理解清楚

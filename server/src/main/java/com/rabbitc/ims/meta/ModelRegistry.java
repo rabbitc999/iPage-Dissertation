@@ -1,5 +1,6 @@
 package com.rabbitc.ims.meta;
 
+import com.rabbitc.ims.ai.AiProperties;
 import com.rabbitc.ipage.annotation.ModelClass;
 import com.rabbitc.ipage.reflect.ModelMeta;
 import com.rabbitc.ims.web.ApiException;
@@ -37,14 +38,20 @@ public class ModelRegistry {
      * </ul>
      */
     private static final Set<String> NOT_EXPOSED =
-            Set.of("userRole", "rolePermission", "viewConfig", "sysFile", "sysSetting", "businessEvent");
+            Set.of("userRole", "rolePermission", "viewConfig", "sysFile", "sysSetting", "businessEvent", "aiModel", "recordAttachment");
 
+    private final Set<String> excluded;
     private final Map<String, Class<?>> models = new LinkedHashMap<>();
 
     /**
      * 扫描模型类。
      */
-    public ModelRegistry() {
+    public ModelRegistry(AiProperties ai) {
+        excluded = new LinkedHashSet<>(NOT_EXPOSED);
+        if (!ai.isAvailable()) {
+            excluded.add("aiMcpServer");
+            excluded.add("aiSkill");
+        }
         ClassPathScanningCandidateComponentProvider scanner =
                 new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(ModelClass.class));
@@ -97,7 +104,7 @@ public class ModelRegistry {
      */
     public Set<String> exposedKeys() {
         Set<String> keys = new LinkedHashSet<>(models.keySet());
-        keys.removeAll(NOT_EXPOSED);
+        keys.removeAll(excluded);
         return keys;
     }
 
@@ -109,7 +116,7 @@ public class ModelRegistry {
      */
     public Class<?> require(String key) {
         Class<?> modelClass = models.get(key);
-        if (modelClass == null || NOT_EXPOSED.contains(key)) {
+        if (modelClass == null || excluded.contains(key)) {
             throw ApiException.notFound("未知模型：" + key);
         }
         return modelClass;

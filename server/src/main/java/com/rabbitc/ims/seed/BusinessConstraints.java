@@ -4,10 +4,13 @@ import com.rabbitc.ims.model.Asset;
 import com.rabbitc.ims.model.Department;
 import com.rabbitc.ims.model.Employee;
 import com.rabbitc.ims.model.Ticket;
+import com.rabbitc.ims.model.RecordAttachment;
+import com.rabbitc.ims.model.SysFile;
 import com.rabbitc.ims.model.User;
 import com.rabbitc.ipage.jdbc.ModelSession;
 import com.rabbitc.ipage.reflect.ModelMeta;
 import com.rabbitc.ipage.sql.Query;
+import com.rabbitc.ipage.sql.SqlStatement;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -36,7 +39,10 @@ public class BusinessConstraints {
             new Rule("fk_ims_asset_keeper", Asset.class, "keeperId", Employee.class),
             new Rule("fk_ims_ticket_dept", Ticket.class, "deptId", Department.class),
             new Rule("fk_ims_ticket_assignee", Ticket.class, "assigneeId", User.class),
-            new Rule("fk_ims_user_dept", User.class, "deptId", Department.class));
+            new Rule("fk_ims_user_dept", User.class, "deptId", Department.class),
+            new Rule("fk_ims_attachment_file", RecordAttachment.class, "fileId", SysFile.class),
+            new Rule("fk_ims_attachment_ticket", RecordAttachment.class, "ticketId", Ticket.class),
+            new Rule("fk_ims_attachment_asset", RecordAttachment.class, "assetId", Asset.class));
 
     private final DataSource dataSource;
     private final ModelSession sql;
@@ -77,9 +83,8 @@ public class BusinessConstraints {
             Set<Object> keys = new HashSet<>();
             if (rule.target() != null) {
                 ModelMeta target = ModelMeta.of(rule.target());
-                for (Object row : rows.computeIfAbsent(rule.target(), this::load)) {
-                    keys.add(target.idValue(row));
-                }
+                // 校验外键只读取目标主键，避免启动时把附件的文件内容载入内存。
+                keys.addAll(sql.query(SqlStatement.options(target, null, null, sql.dialect()), rs -> rs.getObject(1)));
             }
             long invalid = 0;
             for (Object row : rows.computeIfAbsent(rule.source(), this::load)) {
@@ -130,8 +135,10 @@ public class BusinessConstraints {
             return "CREATE UNIQUE INDEX " + name + " ON " + table + " (" + column + ")";
         }
         ModelMeta target = ModelMeta.of(rule.target());
+        String onDelete = rule.source() == RecordAttachment.class && rule.target() != SysFile.class
+                ? " ON DELETE CASCADE" : "";
         return "ALTER TABLE " + table + " ADD CONSTRAINT " + name + " FOREIGN KEY (" + column
-                + ") REFERENCES " + quote(target.table()) + " (" + quote(target.idColumn()) + ")";
+                + ") REFERENCES " + quote(target.table()) + " (" + quote(target.idColumn()) + ")" + onDelete;
     }
 
     private String quote(String name) {

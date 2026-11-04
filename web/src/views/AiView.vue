@@ -6,12 +6,13 @@
  * MCP 与 Skill 的表格直接复用通用 CRUD 接口，保存后服务端会作废旧 AI 会话，
  * 下一次对话自动按新配置重建。
  */
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, streamChat, upload } from '../api/http'
 import { auth, can } from '../stores/auth'
 import { toast, toastError } from '../api/toast'
 import DataForm from '../components/DataForm.vue'
 import { describeChatError } from '../api/chat-errors'
+import { toolLevels } from '../api/tool-access'
 import { renderChatMarkdown } from '../api/chat-markdown'
 import 'katex/dist/katex.min.css'
 
@@ -21,6 +22,7 @@ const statusError = ref('')
 const messages = ref([])
 const input = ref('')
 const allowTools = ref(true)
+const toolAccess = ref('READ_ONLY')
 const sending = ref(false)
 const chatBox = ref(null)
 const filePicker = ref(null)
@@ -33,7 +35,19 @@ const stopping = ref(false)
 const started = ref(false)
 const previews = new Set()
 const models = computed(() => status.value?.models || [])
-const vision = computed(() => models.value.find(model => model.id === selectedModel.value)?.vision)
+const currentModel = computed(() => models.value.find(model => model.id === selectedModel.value))
+const vision = computed(() => currentModel.value?.vision)
+const toolsAllowed = computed(() => currentModel.value?.allowTools === true)
+const toolAccessOptions = computed(() => {
+  const max = toolLevels.findIndex(level => level.id === currentModel.value?.maxToolAccess)
+  return toolLevels.slice(0, Math.max(0, max) + 1)
+})
+const canWriteFiles = computed(() => toolsAllowed.value && allowTools.value && toolAccess.value !== 'READ_ONLY')
+
+watch([selectedModel, toolAccessOptions], () => {
+  toolAccess.value = 'READ_ONLY'
+  allowFileWrites.value = false
+})
 
 function addAttachments(event) {
   for (const file of event.target.files) {
@@ -62,7 +76,7 @@ function removeAttachment(index) {
 
 async function downloadAttachment(item) {
   try {
-    const blob = await api('/files/' + item.id + '/download', { responseType: 'blob' })
+    const blob = await api(item.downloadPath || '/files/' + item.id + '/download', { responseType: 'blob' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -125,14 +139,15 @@ async function send() {
     input.value = ''
     attachments.value = []
     await scrollBottom()
-    const fileWrites = allowFileWrites.value && allowTools.value && status.value.allowTools
+    const fileWrites = allowFileWrites.value && canWriteFiles.value
     allowFileWrites.value = false
     await streamChat({
       message: text,
       model: selectedModel.value,
       runId: runId.value,
       attachments: sent.map(item => item.id),
-      allowTools: allowTools.value && status.value.allowTools,
+      allowTools: allowTools.value && toolsAllowed.value,
+      toolAccess: toolAccess.value,
       allowFileWrites: fileWrites
     }, event => {
       if (event.type === 'started') {
@@ -142,9 +157,19 @@ async function send() {
       } else if (event.type === 'assistant') {
         messages.value.push({ role: 'assistant', html: renderChatMarkdown(event.text) })
       } else if (event.type === 'tool') {
+        if (event.audit.result?.code === 'tool_permission_denied') {
+          messages.value.push({ role: 'error', text: event.audit.result.error, audit: [event.audit] })
+          scrollBottom()
+          return
+        }
         const result = event.audit.result?.result
-        const files = event.audit.name === 'ims_upload_text_file' && event.audit.result?.ok && result?.id
-          ? [result] : []
+        const files = []
+        if (event.audit.result?.ok && result?.id) {
+          if (event.audit.name === 'ims_upload_text_file') files.push(result)
+          if (event.audit.name === 'ims_attach_record_file') {
+            files.push({ ...result, downloadPath: `/models/${result.model}/${result.recordId}/attachments/${result.id}/download` })
+          }
+        }
         messages.value.push({ role: 'assistant', audit: [event.audit], attachments: files })
       }
       scrollBottom()
@@ -277,7 +302,7 @@ onMounted(async () => {
     <div class="card status-bar">
       <div class="row wrap">
         <span class="badge" :class="ready ? 'ok' : 'grey'">{{ ready ? '已就绪' : '未启用' }}</span>
-        <span class="muted small">模型 {{ selectedModel || '—' }} · 协议 {{ status?.provider || '—' }}</span>
+        <span class="muted small">模型 {{ currentModel?.name || '—' }} · 协议 {{ currentModel?.provider || '—' }}</span>
         <span class="muted small">工具 {{ tools.length }} 个</span>
         <span class="muted small">MCP {{ mcpStatus.length }} 个</span>
         <span class="muted small">Skill {{ skills.length }} 个</span>
@@ -285,7 +310,10 @@ onMounted(async () => {
         <button class="btn sm" @click="loadStatus">刷新状态</button>
         <button v-if="can('ai:manage')" class="btn sm" @click="reloadSessions">重建会话</button>
       </div>
-      <p v-if="status?.reason" class="notice">{{ status.reason }}</p>
+      <p v-if="status?.reason" class="notice">
+        {{ status.reason }}
+        <router-link v-if="isAdmin" to="/ai-models">管理模型</router-link>
+      </p>
       <p v-if="statusError" class="notice error">{{ statusError }}</p>
     </div>
 
@@ -365,16 +393,20 @@ onMounted(async () => {
                     :disabled="sending || !models.length" title="切换模型会开启新的上下文">
               <option v-if="!models.length" value="">无可用模型</option>
               <option v-for="model in models" :key="model.id" :value="model.id">
-                {{ model.id }}{{ model.vision ? ' · 视觉' : '' }}
+                {{ model.name }}{{ model.vision ? ' · 视觉' : '' }}
               </option>
             </select>
             <label class="switch">
-              <input v-model="allowTools" type="checkbox" :disabled="sending || !status?.allowTools" />
+              <input v-model="allowTools" type="checkbox" :disabled="sending || !toolsAllowed" />
               <span class="small">工具</span>
             </label>
-            <label class="switch" title="授权本轮生成私有文件或将所选图片发布为头像">
+            <select v-model="toolAccess" class="model-picker" aria-label="AI 工具权限"
+                    :disabled="sending || !toolsAllowed || !allowTools">
+              <option v-for="level in toolAccessOptions" :key="level.id" :value="level.id">{{ level.label }}</option>
+            </select>
+            <label class="switch" title="授权本轮生成文件、关联业务附件或更新个人头像">
               <input v-model="allowFileWrites" type="checkbox"
-                     :disabled="sending || !allowTools || !status?.allowTools" />
+                     :disabled="sending || !canWriteFiles" />
               <span class="small">文件写入</span>
             </label>
             <div class="grow"></div>
@@ -427,7 +459,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <table class="data">
+      <div class="config-table"><table class="data">
         <thead>
           <tr>
             <th>名称</th>
@@ -451,7 +483,7 @@ onMounted(async () => {
             </td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       <p v-if="!mcpRows.length" class="empty">还没有配置 MCP 服务</p>
     </div>
 
@@ -475,7 +507,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <table class="data">
+      <div class="config-table"><table class="data">
         <thead>
           <tr>
             <th>名称</th>
@@ -499,7 +531,7 @@ onMounted(async () => {
             </td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       <p v-if="!skillRows.length" class="empty">还没有配置 Skill</p>
     </div>
 
@@ -521,7 +553,7 @@ onMounted(async () => {
 .notice { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--primary-weak); color: var(--text); font-size: 13px; }
 .notice.error { background: var(--danger-weak); color: var(--danger); }
 
-.tabs { display: flex; gap: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .tab {
   padding: 7px 14px;
   border-radius: 999px;
@@ -586,7 +618,9 @@ button.attachment { cursor: pointer; }
 .attachment-note { margin: 5px 2px 0; }
 .switch { display: inline-flex; align-items: center; gap: 6px; }
 
-.panel { padding: 16px 18px; }
+.config-table { overflow-x: auto; }
+.config-table .mono { max-width: 28rem; white-space: normal; overflow-wrap: anywhere; }
+.panel { min-width: 0; padding: 16px 18px; }
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-top: 12px; }
 .tool { padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-2); }

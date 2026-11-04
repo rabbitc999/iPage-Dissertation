@@ -1,5 +1,7 @@
 package com.rabbitc.ims.meta;
 
+import com.rabbitc.ims.ai.AiConfiguration;
+
 import com.rabbitc.ims.service.AssociationAccess;
 
 import com.rabbitc.ipage.annotation.ValidatorLength;
@@ -38,6 +40,7 @@ import java.util.Set;
 public class MetaService {
 
     private final ModelSession sql;
+    private final AiConfiguration ai;
     private final AssociationAccess associations;
     private final ModelRegistry registry;
 
@@ -47,7 +50,9 @@ public class MetaService {
      * @param sql      SQL 会话
      * @param registry 模型注册表
      */
-    public MetaService(ModelSession sql, ModelRegistry registry, AssociationAccess associations) {
+    public MetaService(ModelSession sql, ModelRegistry registry, AssociationAccess associations,
+                       AiConfiguration ai) {
+        this.ai = ai;
         this.sql = sql;
         this.associations = associations;
         this.registry = registry;
@@ -61,7 +66,9 @@ public class MetaService {
      */
     public List<Map<String, Object>> nav(LoginUser user) {
         List<Map<String, Object>> items = new ArrayList<>();
+        boolean aiEnabled = ai.enabled();
         for (String key : registry.exposedKeys()) {
+            if (!aiEnabled && ("aiMcpServer".equals(key) || "aiSkill".equals(key))) continue;
             ModelMeta meta = ModelMeta.of(registry.require(key));
             if (!canView(user, meta, key)) {
                 continue;
@@ -100,6 +107,7 @@ public class MetaService {
         schema.put("table", meta.table());
         schema.put("icon", meta.icon());
         schema.put("group", ModelRegistry.groupOf(modelClass));
+        schema.put("supportsAttachments", "ticket".equals(key) || "asset".equals(key));
         schema.put("idField", meta.idField().name());
         schema.put("permissions", Map.of("view", view, "create", edit, "edit", edit, "delete", delete));
 

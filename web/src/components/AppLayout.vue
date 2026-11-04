@@ -5,7 +5,8 @@
  * 侧边菜单来自 {@code GET /api/nav}，按 {@code group} 分组渲染，
  * 因此新增模型不需要改这里。移动端把侧边栏收进抽屉。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { features } from '../stores/features'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/http'
 import { auth, can, logout } from '../stores/auth'
@@ -23,6 +24,7 @@ const groups = computed(() => {
   const order = ['业务数据', '系统管理', '智能助手']
   const map = new Map()
   for (const item of nav.value) {
+    if (item.group === '智能助手' && !features.ai) continue
     if (!map.has(item.group)) map.set(item.group, [])
     map.get(item.group).push(item)
   }
@@ -92,6 +94,8 @@ async function signOut() {
   router.push('/login')
 }
 
+watch(() => features.ai, loadNav)
+
 onMounted(() => {
   loadNav()
   loadBrand()
@@ -151,9 +155,21 @@ onUnmounted(() => {
             <span class="dot">图</span>
             <span class="grow">图像设置</span>
           </router-link>
+          <router-link v-if="(auth.user?.level ?? 0) >= 4" to="/log-settings" class="nav-item" @click="open = false">
+            <span class="dot">志</span>
+            <span class="grow">运行日志</span>
+          </router-link>
+          <router-link v-if="(auth.user?.level ?? 0) >= 4" to="/data-reset" class="nav-item" @click="open = false">
+            <span class="dot">清</span>
+            <span class="grow">清空系统数据</span>
+          </router-link>
+          <router-link v-if="features.aiAvailable" to="/ai-models" class="nav-item" @click="open = false">
+            <span class="dot">AI</span>
+            <span class="grow">AI 模型管理</span>
+          </router-link>
         </div>
 
-        <div v-if="can('ai:use')" class="group">
+        <div v-if="features.ai && can('ai:use')" class="group">
           <div class="group-title">助手</div>
           <router-link to="/ai" class="nav-item" @click="open = false">
             <span class="dot">AI</span>

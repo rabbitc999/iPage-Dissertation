@@ -479,6 +479,16 @@ public class CrudService {
 
     // ------------------------------------------------------------------ 权限与行过滤
 
+    /** 关联附件沿用编辑权限及现有的行范围校验。 */
+    public void requireEditableRecord(LoginUser user, String key, String id) {
+        ModelMeta meta = registry.requireMeta(key);
+        requireEdit(user, meta, key);
+        requireView(user, meta, key);
+        if (!visibleRow(user, meta, requireEntity(meta, id))) {
+            throw ApiException.forbidden("无权修改该记录");
+        }
+    }
+
     private void requireView(LoginUser user, ModelMeta meta, String key) {
         if (!metaService.canView(user, meta, key)) {
             throw ApiException.forbidden("没有查看「" + meta.name() + "」的权限");

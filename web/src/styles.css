@@ -194,10 +194,14 @@ table.data td.wrap { white-space: normal; min-width: 220px; }
 }
 
 .row { display: flex; align-items: center; gap: 10px; }
+.row.wrap { flex-wrap: wrap; }
 .grow { flex: 1; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
 .mono { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12.5px; }
+
+/* 给焦点、验证提示和程序化滚动留出固定顶栏的高度。 */
+html { scroll-padding-top: 78px; }
 
 /* ------------------------------ 表单 ------------------------------ */
 .field { margin-bottom: 14px; }

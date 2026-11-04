@@ -171,7 +171,7 @@ onMounted(load)
 .form { display: grid; gap: 18px; max-width: 560px; }
 .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
 .image-editor { display: flex; gap: 14px; align-items: flex-start; }
-.image-editor-body { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.image-editor-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .preview {
   width: 160px;
   height: 100px;
@@ -186,7 +186,7 @@ onMounted(load)
 }
 .preview.small { width: 64px; height: 64px; }
 .placeholder { border-style: dashed; }
-.actions { display: flex; gap: 6px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .actions-row { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 8px; }
 .visually-hidden { display: none; }
 </style>

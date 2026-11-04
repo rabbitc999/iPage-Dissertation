@@ -11,7 +11,7 @@
 
 用法示例::
 
-    python ims_cli.py login --user admin --password admin123
+    python ims_cli.py login --user admin --password 123456
     python ims_cli.py models
     python ims_cli.py schema employee
     python ims_cli.py list employee --kw 苏 --size 5
@@ -125,7 +125,7 @@ def load_token() -> str | None:
 def require_token() -> str:
     token = load_token()
     if not token:
-        raise SystemExit("尚未登录，请先执行：python ims_cli.py login --user admin --password admin123")
+        raise SystemExit("尚未登录，请先执行：python ims_cli.py login --user admin --password 123456")
     return token
 
 

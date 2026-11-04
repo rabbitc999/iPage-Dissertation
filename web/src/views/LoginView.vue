@@ -2,19 +2,18 @@
 /**
  * 登录页。
  * <p>
- * 左侧品牌区在窄屏隐藏，右侧表单支持演示账号一键填充。
+ * 左侧品牌区在窄屏隐藏，右侧表单由用户填写登录凭据。
  * 登录成功后按 {@code ?redirect=} 回跳，没有则进工作台。
  */
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login } from '../stores/auth'
 import { brand, loadBrand } from '../stores/brand'
-import { toastError } from '../api/toast'
 
 const router = useRouter()
 const route = useRoute()
-const username = ref('admin')
-const password = ref('admin123')
+const username = ref('')
+const password = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -30,11 +29,6 @@ async function submit() {
   } finally {
     loading.value = false
   }
-}
-
-function fill(name, pwd) {
-  username.value = name
-  password.value = pwd
 }
 
 onMounted(() => {
@@ -70,16 +64,16 @@ onMounted(() => {
     <section class="form-side">
       <div class="form-card">
         <h2>登录</h2>
-        <p class="muted small">使用演示账号或你自己的账号进入系统</p>
+        <p class="muted small">请输入账号和密码登录系统</p>
 
-        <form @submit.prevent="submit">
+        <form autocomplete="off" @submit.prevent="submit">
           <div class="field">
-            <label>账号</label>
-            <input v-model="username" class="input" autocomplete="username" placeholder="请输入账号" />
+            <label for="login-username">账号</label>
+            <input id="login-username" v-model="username" class="input" autocomplete="off" placeholder="请输入账号" />
           </div>
           <div class="field">
-            <label>密码</label>
-            <input v-model="password" class="input" type="password" autocomplete="current-password" placeholder="请输入密码" />
+            <label for="login-password">密码</label>
+            <input id="login-password" v-model="password" class="input" type="password" autocomplete="off" placeholder="请输入密码" />
           </div>
 
           <div v-if="error" class="alert">{{ error }}</div>
@@ -88,15 +82,6 @@ onMounted(() => {
             {{ loading ? '登录中…' : '登录' }}
           </button>
         </form>
-
-        <div class="demo">
-          <div class="muted small">演示账号（密码需在首次部署后修改）</div>
-          <div class="demo-row">
-            <button type="button" class="chip" @click="fill('admin', 'admin123')">admin / 超管</button>
-            <button type="button" class="chip" @click="fill('manager', 'manager123')">manager / 主管</button>
-            <button type="button" class="chip" @click="fill('staff', 'staff123')">staff / 员工</button>
-          </div>
-        </div>
       </div>
     </section>
   </div>
@@ -164,19 +149,6 @@ form { margin-top: 22px; }
   color: var(--danger);
   font-size: 13px;
 }
-.demo { margin-top: 26px; border-top: 1px solid var(--border); padding-top: 14px; }
-.demo-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.chip {
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--panel);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 12.5px;
-}
-.chip:hover { border-color: var(--primary); color: var(--primary); }
-
 @media (max-width: 860px) {
   .login { grid-template-columns: 1fr; }
   .brand-side { display: none; }

@@ -1,5 +1,6 @@
 package com.rabbitc.ims.web;
 
+import com.rabbitc.ims.ai.AiConfiguration;
 import com.rabbitc.ims.meta.MetaService;
 import com.rabbitc.ims.security.UserContext;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,13 +24,15 @@ import java.util.Map;
 public class MetaController {
 
     private final MetaService metaService;
+    private final AiConfiguration ai;
 
     /**
      * 构造控制器。
      *
      * @param metaService 元数据服务
      */
-    public MetaController(MetaService metaService) {
+    public MetaController(MetaService metaService, AiConfiguration ai) {
+        this.ai = ai;
         this.metaService = metaService;
     }
 
@@ -41,6 +44,12 @@ public class MetaController {
     @GetMapping("/nav")
     public List<Map<String, Object>> nav() {
         return metaService.nav(UserContext.require());
+    }
+
+    /** 即使部署裁剪了 AI，也向前端声明入口不可用。 */
+    @GetMapping("/ai/module")
+    public Map<String, Boolean> aiModule() {
+        return Map.of("enabled", ai.enabled(), "available", ai.available());
     }
 
     /**

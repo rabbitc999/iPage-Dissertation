@@ -9,6 +9,7 @@ import com.rabbitc.ims.model.Employee;
 import com.rabbitc.ims.model.Ticket;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.service.ModelHook;
+import com.rabbitc.ims.service.DataMaintenanceGate;
 import com.rabbitc.ipage.enums.SortType;
 import com.rabbitc.ipage.exception.CheckerException;
 import com.rabbitc.ipage.jdbc.ModelSession;
@@ -26,7 +27,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 
 /** 写入与业务操作同事务，投递在独立线程上等待 RabbitMQ 确认。 */
 @Component
-@EnableScheduling
 @ConditionalOnProperty(name = "ims.rabbitmq.enabled", havingValue = "true")
 public class RabbitBusinessEvents implements ModelHook {
     private static final Logger LOG = LoggerFactory.getLogger(RabbitBusinessEvents.class);
@@ -46,11 +45,14 @@ public class RabbitBusinessEvents implements ModelHook {
     private final RabbitAdmin admin;
     private final ObjectMapper mapper;
     private final Queue queue;
+    private final DataMaintenanceGate maintenance;
     private volatile boolean ready;
 
     public RabbitBusinessEvents(ModelSession sql, RabbitTemplate rabbit, ObjectMapper mapper,
+                                DataMaintenanceGate maintenance,
                                 @Value("${ims.rabbitmq.queue:ims.business.events}") String queueName) {
         this.sql = sql;
+        this.maintenance = maintenance;
         this.rabbit = rabbit;
         this.admin = new RabbitAdmin(rabbit);
         this.mapper = mapper;
@@ -98,7 +100,8 @@ public class RabbitBusinessEvents implements ModelHook {
 
     @Scheduled(fixedDelayString = "${ims.rabbitmq.poll-ms:5000}")
     public void publishPending() {
-        if (!ready) {
+        var lock = maintenance.shared();
+        if (!ready || !lock.tryLock()) {
             return;
         }
         try {
@@ -116,6 +119,8 @@ public class RabbitBusinessEvents implements ModelHook {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             LOG.warn("RabbitMQ 事件暂未确认，保留待发记录：{}", e.toString());
+        } finally {
+            lock.unlock();
         }
     }
 

@@ -4,6 +4,8 @@ import com.rabbitc.ipage.exception.CheckerException;
 import com.rabbitc.ipage.jdbc.ModelSession;
 import com.rabbitc.ipage.sql.Query;
 import com.rabbitc.ims.model.SysFile;
+import com.rabbitc.ims.model.RecordAttachment;
+import com.rabbitc.ims.ai.AiConfiguration;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.security.UserContext;
 import com.rabbitc.ims.service.AuditService;
@@ -61,6 +63,7 @@ public class FileController {
 
     private final ModelSession sql;
     private final AuditService audit;
+    private final AiConfiguration ai;
 
     /**
      * 构造控制器。
@@ -68,7 +71,8 @@ public class FileController {
      * @param sql   SQL 会话
      * @param audit 审计服务
      */
-    public FileController(ModelSession sql, AuditService audit) {
+    public FileController(ModelSession sql, AuditService audit, AiConfiguration ai) {
+        this.ai = ai;
         this.sql = sql;
         this.audit = audit;
     }
@@ -82,10 +86,15 @@ public class FileController {
     @PostMapping
     public Map<String, Object> upload(@RequestParam("file") MultipartFile file,
                                       @RequestParam(defaultValue = "false") boolean chatPrivate) {
-        LoginUser user = UserContext.require();
+        return uploadFor(UserContext.require(), file, chatPrivate);
+    }
+
+    /** 业务附件事务复用已有上传校验与审计。 */
+    public Map<String, Object> uploadFor(LoginUser user, MultipartFile file, boolean chatPrivate) {
         if (chatPrivate && !user.has("ai:use")) {
             throw ApiException.forbidden("没有 AI 使用权限");
         }
+        if (chatPrivate) ai.requireEnabled();
         if (file == null || file.isEmpty()) {
             throw ApiException.badRequest("请选择要上传的文件");
         }
@@ -178,6 +187,9 @@ public class FileController {
         if (!user.isAdmin() && !user.id().equals(record.createBy)) {
             throw ApiException.forbidden("只能删除自己上传的文件");
         }
+        if (sql.count(Query.of(RecordAttachment.class).where("fileId", id)) > 0) {
+            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "请先解除该文件的业务记录关联");
+        }
         sql.delete(record);
         audit.record(user, "删除", "文件", id, record.name);
         return Map.of("ok", true);
@@ -193,6 +205,11 @@ public class FileController {
             throw ApiException.notFound("附件不存在");
         }
         return record;
+    }
+
+    /** 仅供已通过所属业务记录授权的附件下载调用。 */
+    public ResponseEntity<byte[]> downloadLinkedFile(String id) {
+        return bytes(require(id), true);
     }
 
     private SysFile require(String id) {

@@ -150,7 +150,7 @@ async function submit() {
 
 <style scoped>
 .profile { display: grid; gap: 14px; max-width: 780px; }
-.info { display: flex; gap: 18px; align-items: center; padding: 20px; }
+.info { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; padding: 20px; }
 .avatar-wrap { display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .avatar-actions { display: flex; gap: 6px; }
 .visually-hidden { display: none; }
