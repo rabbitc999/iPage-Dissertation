@@ -49,6 +49,30 @@ public final class ConversationEventsTest {
     legacy.allowTools = false;
     check(legacy.send("你好").equals("普通回复"), "Legacy send without tools");
 
+    String leakedReply = """
+        <｜｜DSML｜｜ calls>\\
+        <｜｜DSML｜｜ invoke name="assistant_reply">\\
+        <｜｜DSML｜｜ parameter name="message" string="true">你好！
+
+        - 有什么可以帮你？\\</｜｜DSML｜｜ parameter>\\
+        \\</｜｜DSML｜｜ invoke>\\
+        \\</｜｜DSML｜｜ calls>
+        """;
+    Engine dsml = engine(object("content", leakedReply));
+    List<JsonObject> recovered = new ArrayList<>();
+    String greeting = "你好！\n\n- 有什么可以帮你？";
+    check(dsml.send("你好", recovered::add).equals(greeting), "Recover leaked DSML reply");
+    check(recovered.get(0).get("text").getAsString().equals(greeting), "Emit recovered reply");
+    check(dsml.exportHistory().getAsJsonArray("audit").isEmpty(), "DSML text does not execute tools");
+
+    String taggedReply = "<tool_call>assistant_reply\n{\"message\":\"你好！\\n第二行\"}\n</tool_call>";
+    check(engine(object("content", taggedReply)).send("你好").equals("你好！\n第二行"), "Recover tagged reply");
+    String jsonReply = "<tool_call>{\"name\":\"assistant_reply\",\"arguments\":{\"text\":\"你好！\"}}</tool_call>";
+    check(engine(batch(call("assistant_reply", object("text", jsonReply)), call("assistant_end", object())))
+        .send("你好").equals("你好！"), "Recover tagged reply nested inside a structured reply");
+    String literal = "示例：\n" + taggedReply;
+    check(engine(object("content", literal)).send("示例").equals(literal), "Keep markup quoted in prose");
+
     Engine failing = engine(batch(call("assistant_reply", object("text", "已收到"))));
     List<JsonObject> partial = new ArrayList<>();
     try {

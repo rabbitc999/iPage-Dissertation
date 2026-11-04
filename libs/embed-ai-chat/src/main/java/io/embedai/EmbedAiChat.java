@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改：从泄漏到正文的 DSML 回复中恢复可见文本。
 // 本文件已被 iPage-IMS 修改：增加逐消息事件回调，保留工具调用期间的助手回复。
 // 本文件已被 iPage-IMS 修改：支持本轮视觉附件和工具调用前的协作取消。
 // 本文件已被 iPage-IMS 修改：宿主可筛选工具，并在每次执行前校验权限。
@@ -919,6 +920,44 @@ public final class EmbedAiChat {
     }
 
     // 网络协议适配：内部统一采用 OpenAI 风格，Anthropic 在边界转换工具块。
+    // Only recover a complete, standalone reply envelope. Never interpret prose as tool calls.
+    private static final java.util.regex.Pattern DSML_REPLY = java.util.regex.Pattern.compile(
+        "<｜｜DSML｜｜ calls>\\x5c?\\s*<｜｜DSML｜｜ invoke name=\"assistant_reply\">\\x5c?\\s*"
+            + "<｜｜DSML｜｜ parameter name=\"(?:text|message)\" string=\"true\">(.*?)"
+            + "</｜｜DSML｜｜ parameter>\\x5c?\\s*\\x5c?</｜｜DSML｜｜ invoke>"
+            + "\\x5c?\\s*\\x5c?</｜｜DSML｜｜ calls>", java.util.regex.Pattern.DOTALL);
+
+    private static String visibleReply(String answer) {
+      String trimmed = answer.strip();
+      var dsmlReply = DSML_REPLY.matcher(trimmed);
+      if (dsmlReply.matches()) {
+        return dsmlReply.group(1).replaceFirst("\\x5c$", "").strip();
+      }
+      String open = "<tool_call>";
+      String close = "</tool_call>";
+      if (!trimmed.startsWith(open) || !trimmed.endsWith(close)) return answer;
+      String body = trimmed.substring(open.length(), trimmed.length() - close.length()).strip();
+      try {
+        JsonObject args;
+        if (body.startsWith("assistant_reply") && body.length() > "assistant_reply".length()
+            && Character.isWhitespace(body.charAt("assistant_reply".length()))) {
+          args = JsonParser.parseString(body.substring("assistant_reply".length())).getAsJsonObject();
+        } else {
+          JsonObject call = JsonParser.parseString(body).getAsJsonObject();
+          if (!"assistant_reply".equals(text(call, "name", ""))) return answer;
+          args = call.getAsJsonObject("arguments");
+        }
+        if (args == null || args.size() != 1) return answer;
+        JsonElement value = args.has("text") ? args.get("text") : args.get("message");
+        if (value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) {
+          return value.getAsString();
+        }
+      } catch (JsonParseException | IllegalStateException | ClassCastException ignored) {
+        // An unrecognized envelope may be a literal example in the reply.
+      }
+      return answer;
+    }
+
     /**
      * 适配供应商协议并把响应统一为助手文本及工具调用。
      *
@@ -937,6 +976,7 @@ public final class EmbedAiChat {
               + " across multiple rounds. Use assistant_reply to send each user-facing message as a"
               + " tool call, then continue with other tools as needed. Call assistant_end to finish"
               + " the current turn or wait for user input, after sending any final message. Do not"
+              + " emit tool markup in content. Use native structured tool calls. Do not"
               + " repeat messages already delivered by assistant_reply. A reply without tool calls"
               + " also ends the turn when tools are unavailable.";
       if (!active.isEmpty()) {
@@ -1144,6 +1184,8 @@ public final class EmbedAiChat {
         assistant.addProperty("role", "assistant");
         String answer = text(assistant, "content", "");
         if (!answer.isEmpty()) {
+          answer = visibleReply(answer);
+          assistant.addProperty("content", answer);
           lastReply = answer;
           messages.add(object("role", "assistant", "content", answer));
           events.accept(object("type", "assistant", "text", answer));
@@ -1182,7 +1224,7 @@ public final class EmbedAiChat {
           audit.add(entry);
           events.accept(object("type", "tool", "audit", entry.deepCopy()));
           if (result.get("ok").getAsBoolean() && name.equals("assistant_reply")) {
-            lastReply = result.getAsJsonObject("result").get("text").getAsString();
+            lastReply = visibleReply(result.getAsJsonObject("result").get("text").getAsString());
             messages.add(object("role", "assistant", "content", lastReply));
             events.accept(object("type", "assistant", "text", lastReply));
           }

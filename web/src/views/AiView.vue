@@ -125,6 +125,19 @@ async function loadStatus() {
   }
 }
 
+// Let the IME confirm its candidate before handling chat shortcuts.
+function handleEnter(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  if (event.ctrlKey) {
+    const field = event.currentTarget
+    field.setRangeText('\n', field.selectionStart, field.selectionEnd, 'end')
+    input.value = field.value
+    return
+  }
+  send()
+}
+
 async function send() {
   const text = input.value.trim()
   if (!ready.value || (!text && !attachments.value.length) || sending.value) return
@@ -375,8 +388,8 @@ onMounted(async () => {
             </div>
           </div>
           <textarea v-model="input" class="textarea" rows="2" :disabled="sending"
-                    placeholder="发消息，或添加文件和图片 · Ctrl+Enter 发送"
-                    @keydown.ctrl.enter.prevent="send"></textarea>
+                    placeholder="发消息，或添加文件和图片 · Enter 发送 · Ctrl+Enter 换行"
+                    @keydown.enter="handleEnter"></textarea>
           <div class="row wrap composer-tools">
             <input ref="filePicker" type="file" multiple hidden @change="addAttachments" />
             <input ref="imagePicker" type="file" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif"
