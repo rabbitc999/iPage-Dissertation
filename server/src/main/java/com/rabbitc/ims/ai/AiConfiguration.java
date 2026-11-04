@@ -60,7 +60,7 @@ public class AiConfiguration {
     }
 
     public void requireEnabled() {
-        if (!enabled()) throw ApiException.notImplemented("AI 助手已关闭");
+        if (!enabled()) throw ApiException.notImplemented("智能助手已关闭");
     }
 
     public List<AiModel> models() {
@@ -234,7 +234,7 @@ public class AiConfiguration {
             try {
                 if (found.isPresent()) tx.update(row);
                 else tx.insert(row);
-                audit.record(user, enabled ? "启用" : "关闭", "AI 助手", null, null);
+                audit.record(user, enabled ? "启用" : "关闭", "智能助手", null, null);
             } catch (CheckerException e) {
                 throw ApiException.badRequest("AI 模块状态保存失败");
             }

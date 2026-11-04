@@ -1,3 +1,4 @@
+// 本文件已被 iPage-IMS 修改：允许宿主恢复保存在服务端的可信归档。
 // 本文件已被 iPage-IMS 修改：从泄漏到正文的 DSML 回复中恢复可见文本。
 // 本文件已被 iPage-IMS 修改：按轮请求深度思考，并单独推送供应商公开的思考文本。
 // 本文件已被 iPage-IMS 修改：增加逐消息事件回调，保留工具调用期间的助手回复。
@@ -928,12 +929,19 @@ public final class EmbedAiChat {
             + "</｜｜DSML｜｜ parameter>\\x5c?\\s*\\x5c?</｜｜DSML｜｜ invoke>"
             + "\\x5c?\\s*\\x5c?</｜｜DSML｜｜ calls>", java.util.regex.Pattern.DOTALL);
 
+    private static final java.util.regex.Pattern TAGGED_REPLY = java.util.regex.Pattern.compile(
+        "<assistant_reply>((?:(?!</assistant_reply>).)*+)</assistant_reply>"
+            + "(?:\\s*<assistant_end>(?:(?!</assistant_end>).)*+</assistant_end>)?",
+        java.util.regex.Pattern.DOTALL);
+
     private static String visibleReply(String answer) {
       String trimmed = answer.strip();
       var dsmlReply = DSML_REPLY.matcher(trimmed);
       if (dsmlReply.matches()) {
         return dsmlReply.group(1).replaceFirst("\\x5c$", "").strip();
       }
+      var taggedReply = TAGGED_REPLY.matcher(trimmed);
+      if (taggedReply.matches()) return taggedReply.group(1).strip();
       String open = "<tool_call>";
       String close = "</tool_call>";
       if (!trimmed.startsWith(open) || !trimmed.endsWith(close)) return answer;
@@ -1302,9 +1310,14 @@ public final class EmbedAiChat {
      * @throws IllegalArgumentException 归档格式、大小或摘要覆盖计数无效
      */
     public void importHistory(JsonObject archive) {
+      require(bytes(archive.toString()) <= 4 * 1024 * 1024, "Invalid history");
+      importTrustedHistory(archive);
+    }
+
+    /** Restores an archive generated and stored by the host, independent of the external import limit. */
+    public void importTrustedHistory(JsonObject archive) {
       require(
-          bytes(archive.toString()) <= 4 * 1024 * 1024
-              && archive.get("version").getAsInt() == 1
+          archive.get("version").getAsInt() == 1
               && archive.get("messages").isJsonArray(),
           "Invalid history");
       JsonArray next = archive.getAsJsonArray("messages");

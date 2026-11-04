@@ -190,7 +190,7 @@ onMounted(async () => {
         <div v-if="features.ai && can('ai:use')" class="quick-item">
           <div>
             <b>用一句话维护数据</b>
-            <div class="muted small">AI 助手可以查询、新增、修改数据，删除前会向你确认。</div>
+            <div class="muted small">智能助手可以查询、新增、修改数据，删除前会向你确认。</div>
           </div>
           <router-link to="/ai" class="btn primary">打开助手</router-link>
         </div>

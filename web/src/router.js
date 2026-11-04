@@ -25,7 +25,7 @@ const routes = [
       { path: 'log-settings', name: 'log-settings', component: () => import('./views/LogSettingsView.vue'), meta: { title: '运行日志' } },
       { path: 'data-reset', name: 'data-reset', component: () => import('./views/DataResetView.vue'), meta: { title: '清空系统数据' } },
       { path: 'ai-models', name: 'ai-models', component: () => import('./views/AiModelsView.vue'), meta: { title: 'AI 模型管理' } },
-      { path: 'ai', name: 'ai', component: () => import('./views/AiView.vue'), meta: { title: 'AI 助手' } },
+      { path: 'ai', name: 'ai', component: () => import('./views/AiView.vue'), meta: { title: '智能助手' } },
       { path: 'profile', name: 'profile', component: () => import('./views/ProfileView.vue'), meta: { title: '个人设置' } }
     ]
   },

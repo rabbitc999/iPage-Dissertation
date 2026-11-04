@@ -79,7 +79,7 @@ async function updateModule(enabled) {
   try {
     const result = await api('/ai/config/module', { method: 'PUT', body: { enabled } })
     features.ai = result.enabled
-    toast(enabled ? 'AI 助手已启用' : 'AI 助手已关闭', 'success')
+    toast(enabled ? '智能助手已启用' : '智能助手已关闭', 'success')
   } catch (error) {
     toastError(error)
   } finally {
@@ -127,7 +127,7 @@ onMounted(load)
   <div class="config-page">
     <section class="card config-card">
       <div class="row wrap">
-        <h3>AI 助手模块</h3>
+        <h3>智能助手模块</h3>
         <span class="badge" :class="features.ai ? 'ok' : 'grey'">{{ features.ai ? '已启用' : '已关闭' }}</span>
         <div class="grow"></div>
         <button class="btn" :disabled="busy || !loaded" @click="updateModule(!features.ai)">

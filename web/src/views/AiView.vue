@@ -20,6 +20,11 @@ const tab = ref('chat')
 const status = ref(null)
 const statusError = ref('')
 const messages = ref([])
+const conversations = ref([])
+const conversationId = ref('')
+const managingConversations = ref(false)
+const editingTitle = ref(false)
+const conversationTitle = ref('')
 const input = ref('')
 const allowTools = ref(true)
 const toolAccess = ref('READ_ONLY')
@@ -141,12 +146,17 @@ function handleEnter(event) {
 
 async function send() {
   const text = input.value.trim()
-  if (!ready.value || (!text && !attachments.value.length) || sending.value) return
+  if (!ready.value || (!text && !attachments.value.length) || sending.value || managingConversations.value) return
   sending.value = true
   runId.value = Array.from(crypto.getRandomValues(new Uint32Array(4)), word => word.toString(16)).join('-')
   try {
     for (const item of attachments.value) {
       if (!item.id) item.id = (await upload('/files?chatPrivate=true', item.file)).id
+    }
+    if (!conversationId.value) {
+      const created = await api('/ai/conversations', { method: 'POST' })
+      conversations.value.unshift(created)
+      conversationId.value = created.id
     }
     const sent = attachments.value
     messages.value.push({ role: 'user', text, attachments: sent })
@@ -160,6 +170,7 @@ async function send() {
     allowFileWrites.value = false
     await streamChat({
       message: text,
+      conversationId: conversationId.value,
       model: selectedModel.value,
       runId: runId.value,
       attachments: sent.map(item => item.id),
@@ -206,27 +217,85 @@ async function send() {
   } finally {
     started.value = false
     stopping.value = false
-    sending.value = false
+    try {
+      await loadConversations()
+    } catch (e) {
+      toastError(e)
+    } finally {
+      sending.value = false
+    }
   }
 }
 
-async function resetChat() {
-  if (sending.value) return
-  try {
-    await api('/ai/reset', { method: 'POST' })
-    for (const message of messages.value) {
-      for (const item of message.attachments || []) {
-        if (item.preview) {
-          URL.revokeObjectURL(item.preview)
-          previews.delete(item.preview)
-        }
+async function loadConversations() {
+  conversations.value = await api('/ai/conversations')
+}
+
+function showConversation(id, history) {
+  for (const message of messages.value) {
+    for (const item of message.attachments || []) {
+      if (item.preview) {
+        URL.revokeObjectURL(item.preview)
+        previews.delete(item.preview)
       }
     }
-    messages.value = []
-    toast('对话已清空', 'success')
+  }
+  conversationId.value = id
+  editingTitle.value = false
+  messages.value = history.map(message => message.role === 'assistant' && message.text
+    ? { ...message, html: renderChatMarkdown(message.text) }
+    : message)
+  return scrollBottom()
+}
+
+async function manageConversations(action) {
+  if (sending.value || managingConversations.value) return
+  managingConversations.value = true
+  try {
+    await action()
   } catch (e) {
     toastError(e)
+  } finally {
+    managingConversations.value = false
   }
+}
+
+function selectConversation(id) {
+  return manageConversations(async () => {
+    await showConversation(id, await api('/ai/conversations/' + id))
+  })
+}
+
+function newConversation() {
+  return manageConversations(async () => {
+    const created = await api('/ai/conversations', { method: 'POST' })
+    conversations.value.unshift(created)
+    await showConversation(created.id, [])
+  })
+}
+
+function editConversation(item) {
+  conversationTitle.value = item.title
+  editingTitle.value = true
+}
+
+function renameConversation(id) {
+  return manageConversations(async () => {
+    const updated = await api('/ai/conversations/' + id, {
+      method: 'PUT', body: { title: conversationTitle.value }
+    })
+    conversations.value = conversations.value.map(item => item.id === id ? updated : item)
+    editingTitle.value = false
+  })
+}
+
+function deleteConversation(item) {
+  if (!window.confirm('删除对话「' + item.title + '」？')) return
+  return manageConversations(async () => {
+    await api('/ai/conversations/' + item.id, { method: 'DELETE' })
+    conversations.value = conversations.value.filter(entry => entry.id !== item.id)
+    if (conversationId.value === item.id) await showConversation('', [])
+  })
 }
 
 async function reloadSessions() {
@@ -318,8 +387,15 @@ function auditText(item) {
 onUnmounted(() => previews.forEach(url => URL.revokeObjectURL(url)))
 
 onMounted(async () => {
-  await loadStatus()
-  await loadConfigRows()
+  await Promise.all([
+    manageConversations(async () => {
+      await loadConversations()
+      const latest = conversations.value[0]
+      if (latest) await showConversation(latest.id, await api('/ai/conversations/' + latest.id))
+    }),
+    loadStatus(),
+    loadConfigRows()
+  ])
 })
 </script>
 
@@ -350,7 +426,8 @@ onMounted(async () => {
       <button v-if="isAdmin" class="tab" :class="{ on: tab === 'skill' }" @click="tab = 'skill'">Skill</button>
     </div>
 
-    <div v-if="tab === 'chat'" class="card chat">
+    <div v-if="tab === 'chat'" class="chat-layout">
+    <div class="card chat">
       <div ref="chatBox" class="chat-body">
         <div v-if="!messages.length" class="chat-empty">
           <h3>向数据提问，或让助手改数据</h3>
@@ -421,7 +498,7 @@ onMounted(async () => {
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="1.5"/><path d="m4 17 5-4 3 2 4-5 5 5"/></svg>
             </button>
             <select v-model="selectedModel" class="model-picker" aria-label="选择模型"
-                    :disabled="sending || !models.length" title="切换模型会开启新的上下文">
+                    :disabled="sending || !models.length" title="选择下一轮使用的模型">
               <option v-if="!models.length" value="">无可用模型</option>
               <option v-for="model in models" :key="model.id" :value="model.id">
                 {{ model.name }}{{ model.vision ? ' · 视觉' : '' }}
@@ -445,14 +522,13 @@ onMounted(async () => {
               <input v-model="deepThinking" type="checkbox" :disabled="sending || !ready" />
               深度思考
             </label>
-            <button class="btn ghost sm" :disabled="sending || !messages.length" @click="resetChat">清空</button>
             <button v-if="sending" class="btn primary icon-btn send-btn" :disabled="!started || stopping"
                     :title="stopping ? '正在停止' : started ? '停止本轮' : '正在提交'"
                     aria-label="停止本轮" @click="stop">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12m6-12v12"/></svg>
             </button>
             <button v-else class="btn primary icon-btn send-btn" title="发送" aria-label="发送"
-                    :disabled="!ready || (!input.trim() && !attachments.length)" @click="send">
+                    :disabled="!ready || managingConversations || (!input.trim() && !attachments.length)" @click="send">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
             </button>
           </div>
@@ -461,6 +537,35 @@ onMounted(async () => {
           当前模型只接收图片的文件信息。选择视觉模型可识别图片。
         </p>
       </div>
+    </div>
+
+      <aside class="card conversation-history" aria-label="历史对话">
+        <div class="conversation-heading">
+          <h3>历史对话</h3>
+          <button class="btn sm" :disabled="sending || managingConversations" @click="newConversation">新建对话</button>
+        </div>
+        <p v-if="!conversations.length" class="muted small">暂无历史对话</p>
+        <ul v-else class="conversation-list">
+          <li v-for="item in conversations" :key="item.id">
+            <form v-if="item.id === conversationId && editingTitle" class="conversation-edit"
+                  @submit.prevent="renameConversation(item.id)">
+              <input v-model="conversationTitle" class="input" aria-label="对话名称" maxlength="120" required />
+              <button class="btn sm" :disabled="managingConversations || sending">保存</button>
+              <button type="button" class="btn ghost sm" @click="editingTitle = false">取消</button>
+            </form>
+            <template v-else>
+              <button class="btn ghost conversation-link" :class="{ 'active-conversation': item.id === conversationId }"
+                      :aria-current="item.id === conversationId ? 'true' : undefined"
+                      :title="item.title" :disabled="sending || managingConversations"
+                      @click="selectConversation(item.id)">{{ item.title }}</button>
+              <div v-if="item.id === conversationId" class="conversation-actions">
+                <button class="btn ghost sm" :disabled="sending || managingConversations" @click="editConversation(item)">重命名</button>
+                <button class="btn ghost sm" :disabled="sending || managingConversations" @click="deleteConversation(item)">删除</button>
+              </div>
+            </template>
+          </li>
+        </ul>
+      </aside>
     </div>
 
     <div v-else-if="tab === 'tools'" class="card panel">
@@ -599,6 +704,18 @@ onMounted(async () => {
 }
 .tab.on { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); font-weight: 600; }
 
+.chat-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 260px); gap: 12px; }
+.conversation-history { padding: 12px; min-width: 0; max-height: calc(100vh - 260px); overflow: auto; }
+.conversation-heading, .conversation-actions, .conversation-edit { display: flex; align-items: center; gap: 6px; }
+.conversation-heading { justify-content: space-between; }
+.conversation-list { padding: 0; margin: 12px 0 0; list-style: none; }
+.conversation-link { display: block; width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-conversation { border-color: var(--primary); }
+.conversation-edit .input { min-width: 0; }
+@media (max-width: 760px) {
+  .chat-layout { grid-template-columns: minmax(0, 1fr); }
+  .conversation-history { max-height: 240px; }
+}
 .chat { display: flex; flex-direction: column; height: calc(100vh - 260px); min-height: 420px; }
 .chat-body { flex: 1; overflow: auto; padding: 18px 18px 6px; }
 .chat-empty { padding: 6vh 10px; text-align: center; }

@@ -72,6 +72,11 @@ public final class ConversationEventsTest {
         .send("你好").equals("你好！"), "Recover tagged reply nested inside a structured reply");
     String literal = "示例：\n" + taggedReply;
     check(engine(object("content", literal)).send("示例").equals(literal), "Keep markup quoted in prose");
+    String xmlReply = "<assistant_reply>\n你好！\n\n有什么可以帮你？\n</assistant_reply>"
+        + "\n\n<assistant_end>\n等待用户输入\n</assistant_end>";
+    Engine xml = engine(object("content", xmlReply));
+    check(xml.send("你好").equals("你好！\n\n有什么可以帮你？"), "Recover reply without the end marker");
+    check(xml.exportHistory().getAsJsonArray("audit").isEmpty(), "Tagged reply and end do not execute tools");
 
     Engine thinking = new Engine((url, headers, body) -> {
       check(body.getAsJsonObject("thinking").get("type").getAsString().equals("enabled"),

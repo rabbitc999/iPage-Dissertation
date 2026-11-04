@@ -1,6 +1,7 @@
 package com.rabbitc.ims.ai;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -9,6 +10,8 @@ import com.rabbitc.ipage.sql.Query;
 import com.rabbitc.ims.event.AiConfigChangedEvent;
 import com.rabbitc.ims.enums.ToolAccess;
 import com.rabbitc.ims.meta.MetaService;
+import com.rabbitc.ims.meta.ModelRegistry;
+import com.rabbitc.ipage.reflect.ModelMeta;
 import com.rabbitc.ims.model.AiMcpServer;
 import com.rabbitc.ims.model.AiModel;
 import com.rabbitc.ims.model.AiSkill;
@@ -34,7 +37,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-import java.io.InputStream;
+import javax.sql.DataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -45,7 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * AI 会话管理：把「模型 + 工具 + MCP + Skill」装配成每个用户一个的引擎实例。
+ * AI 会话管理：按账号装配引擎，按对话保存可恢复的上下文与可见消息。
  * <p>
  * 三个设计要点：
  * <ul>
@@ -71,6 +74,9 @@ public class AiEngineManager {
     private final CrudService crud;
     private final MetaService metaService;
     private final ModelSession sql;
+    private final ModelRegistry registry;
+    private final DataSource dataSource;
+    private final AiConversations conversations;
 
     private final FileController files;
     private final RecordAttachmentService recordAttachments;
@@ -93,10 +99,13 @@ public class AiEngineManager {
      */
     public AiEngineManager(AiProperties props, CrudService crud, MetaService metaService, ModelSession sql,
                            FileController files, ProfileController profiles, AiConfiguration configuration,
-                           RecordAttachmentService recordAttachments) {
+                           RecordAttachmentService recordAttachments, ModelRegistry registry, DataSource dataSource) {
+        this.dataSource = dataSource;
+        this.registry = registry;
+        this.props = props;
+        this.conversations = new AiConversations(workDir().resolve("conversations"));
         this.recordAttachments = recordAttachments;
         this.configuration = configuration;
-        this.props = props;
         this.crud = crud;
         this.metaService = metaService;
         this.sql = sql;
@@ -104,25 +113,28 @@ public class AiEngineManager {
         this.profiles = profiles;
     }
 
-    /**
-     * 启动时把打进 jar 的示例 Skill 释放到运行目录，用户可以直接改。
-     */
-    private void prepareWorkDir() {
+    /** Refreshes the generated schema section while keeping locally edited Skill instructions. */
+    private Path prepareWorkDir() {
         Path target = workDir().resolve("skills/ims-assistant/SKILL.md");
-        if (Files.exists(target)) {
-            return;
-        }
         ClassPathResource resource = new ClassPathResource("ai/skills/ims-assistant/SKILL.md");
-        if (!resource.exists()) {
-            return;
-        }
-        try (InputStream in = resource.getInputStream()) {
-            Files.createDirectories(target.getParent());
-            Files.copy(in, target);
-            LOG.info("[ims] 已释放内置 Skill 到 {}", target);
+        try {
+            String original;
+            if (Files.exists(target)) {
+                original = Files.readString(target);
+            } else {
+                try (var in = resource.getInputStream()) {
+                    original = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            }
+            String updated = AiSkillSchema.append(original, registry, sql, dataSource);
+            if (!updated.equals(original) || !Files.exists(target)) {
+                Files.createDirectories(target.getParent());
+                Files.writeString(target, updated);
+            }
         } catch (Exception e) {
-            LOG.warn("[ims] 释放内置 Skill 失败：{}", e.getMessage());
+            LOG.warn("[ims] 生成内置 Skill 失败：{}", e.getMessage());
         }
+        return target.getParent();
     }
 
     /** 返回当前用户可用的模型及当前会话状态。 */
@@ -143,7 +155,7 @@ public class AiEngineManager {
         body.put("hasKey", first != null);
         body.put("allowTools", first != null && first.allowTools);
         if (first == null) {
-            body.put("reason", enabled ? "当前账号没有可用模型，请联系管理员检查模型配置" : "AI 助手已关闭");
+            body.put("reason", enabled ? "当前账号没有可用模型，请联系管理员检查模型配置" : "智能助手已关闭");
             body.put("tools", List.of());
             body.put("mcp", List.of());
             body.put("skills", List.of());
@@ -217,11 +229,11 @@ public class AiEngineManager {
     /** 按顺序转发本轮消息事件，工具仍以当前用户身份同步执行。 */
     public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
                                     java.util.function.Consumer<JsonObject> events) {
-        return chat(user, message, allowTools, null, null, List.of(), false, ToolAccess.READ_ONLY, false, events);
+        return chat(user, message, allowTools, null, null, List.of(), false, ToolAccess.READ_ONLY, false, null, events);
     }
 
     public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
-                                    String model, String runId, List<String> ids, boolean allowFileWrites, ToolAccess requestedAccess, boolean deepThinking,
+                                    String model, String runId, List<String> ids, boolean allowFileWrites, ToolAccess requestedAccess, boolean deepThinking, String conversationId,
                                     java.util.function.Consumer<JsonObject> events) {
         long version = generation.get();
         configuration.requireEnabled();
@@ -244,10 +256,17 @@ public class AiEngineManager {
             throw ApiException.badRequest("请输入内容或添加附件");
         }
         var run = new Run(runId, new AtomicBoolean());
-        if (runs.putIfAbsent(user.id(), run) != null) throw ApiException.badRequest("已有对话正在运行");
+        synchronized (runs) {
+            if (runs.putIfAbsent(user.id(), run) != null) throw ApiException.badRequest("已有对话正在运行");
+        }
         try {
             events.accept(EmbedAiChat.object("type", "started"));
-            return runChat(user, message, toolsEnabled, selected, version, ids, allowFileWrites, access, deepThinking, events, run.cancelled());
+            Map<String, Object> result = runChat(user, message, toolsEnabled, selected, version, ids, allowFileWrites,
+                    access, deepThinking, conversationId, event -> {
+                        if (!"done".equals(event.get("type").getAsString())) events.accept(event);
+                    }, run.cancelled());
+            events.accept(EmbedAiChat.object("type", "done"));
+            return result;
         } finally {
             runs.remove(user.id(), run);
         }
@@ -255,7 +274,7 @@ public class AiEngineManager {
 
     private Map<String, Object> runChat(LoginUser user, String message, boolean allowTools, AiModel model,
                                         long version, List<String> ids, boolean allowFileWrites, ToolAccess access,
-                                        boolean deepThinking,
+                                        boolean deepThinking, String conversationId,
                                         java.util.function.Consumer<JsonObject> events, AtomicBoolean cancelled) {
         boolean externalMcp = allowTools && access == ToolAccess.FULL && user.isAdmin();
         Session session = sessionFor(user, model, version, externalMcp);
@@ -295,6 +314,22 @@ public class AiEngineManager {
                 throw ApiException.badRequest("消息和文本附件合计不能超过 64KB");
             }
             String key = configuration.credential(model);
+            JsonObject previous = null;
+            JsonArray transcript = null;
+            if (conversationId != null) {
+                JsonObject saved = conversations.archive(user.id(), conversationId);
+                transcript = conversations.messages(user.id(), conversationId);
+                previous = session.engine.exportHistory();
+                if (saved == null) session.engine.clear();
+                else session.engine.importTrustedHistory(saved);
+                var attached = new JsonArray();
+                attachments.values().forEach(file -> attached.add(EmbedAiChat.object(
+                        "id", file.id, "name", file.name, "type", file.contentType)));
+                transcript.add(EmbedAiChat.object("role", "user", "text", message == null ? "" : message,
+                        "attachments", attached));
+                if (deepThinking) transcript.add(EmbedAiChat.object("role", "assistant", "thinkingRequested", true));
+            }
+            JsonArray visibleMessages = transcript;
             session.access = access;
             session.fileWrites = allowFileWrites;
             session.attachments = attachments;
@@ -302,15 +337,21 @@ public class AiEngineManager {
             session.engine.config.key = key;
             int auditStart = session.engine.exportHistory().getAsJsonArray("audit").size();
             String reply;
+            JsonObject archive;
             try {
-                reply = session.engine.send(prompt.toString(), events, images.isEmpty() ? null : content, deepThinking, () -> {
+                reply = session.engine.send(prompt.toString(), event -> {
+                    if (visibleMessages != null) recordVisibleEvent(visibleMessages, event);
+                    events.accept(event);
+                }, images.isEmpty() ? null : content, deepThinking, () -> {
                     if (cancelled.get() || version != generation.get() || !configuration.current(model)) {
                         throw new CancellationException();
                     }
                 });
             } catch (CancellationException e) {
+                if (visibleMessages != null) {
+                    visibleMessages.add(EmbedAiChat.object("role", "assistant", "text", "本轮已停止。"));
+                }
                 events.accept(EmbedAiChat.object("type", "cancelled"));
-                events.accept(EmbedAiChat.object("type", "done"));
                 return Map.of("cancelled", true);
             } catch (Exception e) {
                 var failure = new ModelFailure(e, key);
@@ -321,8 +362,17 @@ public class AiEngineManager {
                 session.fileWrites = false;
                 session.access = ToolAccess.READ_ONLY;
                 session.attachments = Map.of();
+                archive = session.engine.exportHistory();
+                if (previous != null) {
+                    try {
+                        if (archive.getAsJsonArray("messages").size() > 0) {
+                            conversations.save(user.id(), conversationId, archive, visibleMessages, message);
+                        }
+                    } finally {
+                        session.engine.importTrustedHistory(previous);
+                    }
+                }
             }
-            JsonObject archive = session.engine.exportHistory();
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("reply", reply);
             com.google.gson.JsonArray currentAudit = new com.google.gson.JsonArray();
@@ -332,6 +382,63 @@ public class AiEngineManager {
             body.put("audit", toJava(currentAudit));
             body.put("tools", toolNames(session.engine));
             return body;
+        }
+    }
+
+    /** Captures only user-visible events for the conversation sidebar. */
+    private void recordVisibleEvent(JsonArray transcript, JsonObject event) {
+        String type = event.get("type").getAsString();
+        if ("assistant".equals(type)) {
+            transcript.add(EmbedAiChat.object("role", "assistant", "text", event.get("text")));
+        } else if ("tool".equals(type)) {
+            JsonObject audit = event.getAsJsonObject("audit");
+            String name = audit.get("name").getAsString();
+            if (!Set.of("ims_attach_record_file", "ims_upload_text_file").contains(name)) return;
+            JsonObject outcome = audit.getAsJsonObject("result");
+            JsonElement result = outcome.get("result");
+            if (!outcome.get("ok").getAsBoolean() || result == null || !result.isJsonObject()) return;
+            JsonObject file = result.getAsJsonObject().deepCopy();
+            if (!file.has("id")) return;
+            if ("ims_attach_record_file".equals(name)) {
+                file.addProperty("downloadPath", "/models/" + file.get("model").getAsString()
+                        + "/" + file.get("recordId").getAsString() + "/attachments/"
+                        + file.get("id").getAsString() + "/download");
+            }
+            transcript.add(EmbedAiChat.object("role", "assistant", "attachments", EmbedAiChat.array(file)));
+        } else if ("thinking".equals(type)) {
+            JsonObject message = EmbedAiChat.object("role", "assistant", "thinking", event.get("text"));
+            for (int i = transcript.size() - 1; i >= 0; i--) {
+                JsonObject item = transcript.get(i).getAsJsonObject();
+                if ("user".equals(item.get("role").getAsString())) break;
+                if (item.has("thinkingRequested")) {
+                    transcript.set(i, message);
+                    return;
+                }
+            }
+            transcript.add(message);
+        }
+    }
+
+    public List<AiConversations.Entry> conversations(LoginUser user) {
+        return conversations.list(user.id());
+    }
+
+    public AiConversations.Entry createConversation(LoginUser user) {
+        return conversations.create(user.id());
+    }
+
+    public List<?> conversation(LoginUser user, String id) {
+        return GSON.fromJson(conversations.messages(user.id(), id), List.class);
+    }
+
+    public AiConversations.Entry renameConversation(LoginUser user, String id, String title) {
+        return conversations.rename(user.id(), id, title);
+    }
+
+    public void deleteConversation(LoginUser user, String id) {
+        synchronized (runs) {
+            if (runs.containsKey(user.id())) throw ApiException.badRequest("请等待本轮对话结束");
+            conversations.delete(user.id(), id);
         }
     }
 
@@ -435,23 +542,38 @@ public class AiEngineManager {
             // 外部工具无法可靠区分读写，只在管理员明确选择最高权限时挂载。
             if (externalMcp) attachMcp(session);
         }
-        prepareWorkDir();
-        loadSkills(session);
+        loadSkills(session, prepareWorkDir());
         return session;
     }
 
-    private void loadSkills(Session session) {
-        List<AiSkill> skills = sql.selectList(Query.of(AiSkill.class).where("enabled", true));
+    private void loadSkills(Session session, Path defaultDirectory) {
+        List<AiSkill> skills = sql.selectList(Query.of(AiSkill.class));
+        boolean defaultConfigured = false;
+        boolean active = false;
         for (AiSkill skill : skills) {
             try {
-                String name = session.engine.loadSkill(Path.of(skill.directory));
+                Path directory = Path.of(skill.directory).toAbsolutePath().normalize();
+                if (directory.equals(defaultDirectory)) defaultConfigured = true;
+                if (!Boolean.TRUE.equals(skill.enabled)) continue;
+                String name = session.engine.loadSkill(directory);
                 session.skills.add(name);
                 if (Boolean.TRUE.equals(skill.autoActivate)) {
                     session.engine.activateSkill(name);
+                    active = true;
                 }
             } catch (Exception e) {
                 session.skillErrors.add(skill.name + "：" + e.getMessage());
                 LOG.warn("[ims] Skill 加载失败（{}）：{}", skill.directory, e.getMessage());
+            }
+        }
+        if (!defaultConfigured && !session.skills.contains("ims-assistant")) {
+            try {
+                String name = session.engine.loadSkill(defaultDirectory);
+                session.skills.add(name);
+                if (!active) session.engine.activateSkill(name);
+            } catch (Exception e) {
+                session.skillErrors.add("ims-assistant：" + e.getMessage());
+                LOG.warn("[ims] 内置 Skill 加载失败：{}", e.getMessage());
             }
         }
     }

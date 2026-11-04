@@ -7,6 +7,9 @@ import com.rabbitc.ims.security.RequirePermission;
 import com.rabbitc.ims.security.UserContext;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,7 +51,7 @@ public class AiController {
      * @param allowTools 是否允许模型调用工具
      */
     public record ChatRequest(String message, Boolean allowTools, String model, String runId,
-                              java.util.List<String> attachments, Boolean allowFileWrites, ToolAccess toolAccess, Boolean deepThinking) {
+                              java.util.List<String> attachments, Boolean allowFileWrites, ToolAccess toolAccess, Boolean deepThinking, String conversationId) {
     }
 
     /**
@@ -72,7 +75,7 @@ public class AiController {
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         boolean allowTools = request.allowTools() == null || request.allowTools();
         return manager.chat(UserContext.require(), request.message(), allowTools, request.model(),
-                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), Boolean.TRUE.equals(request.deepThinking()), event -> {});
+                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), Boolean.TRUE.equals(request.deepThinking()), request.conversationId(), event -> {});
     }
 
     /**
@@ -98,7 +101,7 @@ public class AiController {
         };
         try {
             manager.chat(user, request.message(), request.allowTools() == null || request.allowTools(),
-                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), Boolean.TRUE.equals(request.deepThinking()), emit);
+                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), request.toolAccess(), Boolean.TRUE.equals(request.deepThinking()), request.conversationId(), emit);
         } catch (Exception error) {
             if (!writer.checkError()) {
                 if (error instanceof AiEngineManager.ModelFailure failure) {
@@ -127,6 +130,40 @@ public class AiController {
      *
      * @return 归档
      */
+    @GetMapping("/conversations")
+    @RequirePermission("ai:use")
+    public java.util.List<com.rabbitc.ims.ai.AiConversations.Entry> conversations() {
+        return manager.conversations(UserContext.require());
+    }
+
+    @PostMapping("/conversations")
+    @RequirePermission("ai:use")
+    public com.rabbitc.ims.ai.AiConversations.Entry createConversation() {
+        return manager.createConversation(UserContext.require());
+    }
+
+    @GetMapping("/conversations/{id}")
+    @RequirePermission("ai:use")
+    public java.util.List<?> conversation(@PathVariable String id) {
+        return manager.conversation(UserContext.require(), id);
+    }
+
+    public record ConversationTitle(String title) {}
+
+    @PutMapping("/conversations/{id}")
+    @RequirePermission("ai:use")
+    public com.rabbitc.ims.ai.AiConversations.Entry renameConversation(@PathVariable String id,
+                                                                        @RequestBody ConversationTitle request) {
+        return manager.renameConversation(UserContext.require(), id, request.title());
+    }
+
+    @DeleteMapping("/conversations/{id}")
+    @RequirePermission("ai:use")
+    public Map<String, Boolean> deleteConversation(@PathVariable String id) {
+        manager.deleteConversation(UserContext.require(), id);
+        return Map.of("ok", true);
+    }
+
     @GetMapping("/history")
     @RequirePermission("ai:use")
     public Map<String, Object> history() {

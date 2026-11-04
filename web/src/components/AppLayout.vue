@@ -121,6 +121,10 @@ onUnmounted(() => {
       </div>
 
       <nav class="nav">
+        <router-link v-if="features.ai && can('ai:use')" to="/ai" class="nav-item" @click="open = false">
+          <span class="dot">AI</span>
+          <span class="grow">智能助手</span>
+        </router-link>
         <router-link to="/dashboard" class="nav-item" @click="open = false">
           <span class="dot">台</span>
           <span class="grow">工作台</span>
@@ -169,13 +173,6 @@ onUnmounted(() => {
           </router-link>
         </div>
 
-        <div v-if="features.ai && can('ai:use')" class="group">
-          <div class="group-title">助手</div>
-          <router-link to="/ai" class="nav-item" @click="open = false">
-            <span class="dot">AI</span>
-            <span class="grow">AI 助手</span>
-          </router-link>
-        </div>
       </nav>
 
       <div class="side-foot">
