@@ -80,8 +80,12 @@ public class FileController {
      * @return 文件元数据与访问地址
      */
     @PostMapping
-    public Map<String, Object> upload(@RequestParam("file") MultipartFile file) {
+    public Map<String, Object> upload(@RequestParam("file") MultipartFile file,
+                                      @RequestParam(defaultValue = "false") boolean chatPrivate) {
         LoginUser user = UserContext.require();
+        if (chatPrivate && !user.has("ai:use")) {
+            throw ApiException.forbidden("没有 AI 使用权限");
+        }
         if (file == null || file.isEmpty()) {
             throw ApiException.badRequest("请选择要上传的文件");
         }
@@ -101,8 +105,14 @@ public class FileController {
             throw ApiException.badRequest("读取上传内容失败");
         }
 
+        return store(user, name, contentType, data, chatPrivate);
+    }
+
+    /** 同一文件存储入口也用于助手生成的附件。 */
+    public Map<String, Object> store(LoginUser user, String name, String contentType, byte[] data, boolean chatPrivate) {
         SysFile record = new SysFile();
-        record.name = name;
+        record.chatPrivate = chatPrivate;
+        record.name = sanitizeName(name);
         record.contentType = contentType;
         record.size = (long) data.length;
         record.data = data;
@@ -120,7 +130,7 @@ public class FileController {
         result.put("name", record.name);
         result.put("contentType", record.contentType);
         result.put("size", record.size);
-        result.put("url", "/api/files/" + record.id + "/raw");
+        result.put("url", "/api/files/" + record.id + (chatPrivate ? "/download" : "/raw"));
         return result;
     }
 
@@ -134,6 +144,9 @@ public class FileController {
     @GetMapping("/{id}/raw")
     public ResponseEntity<byte[]> raw(@PathVariable String id) {
         SysFile record = require(id);
+        if (Boolean.TRUE.equals(record.chatPrivate)) {
+            throw ApiException.notFound("文件不存在");
+        }
         return bytes(record, false);
     }
 
@@ -146,6 +159,9 @@ public class FileController {
     @GetMapping("/{id}/download")
     public ResponseEntity<byte[]> download(@PathVariable String id) {
         SysFile record = require(id);
+        if (Boolean.TRUE.equals(record.chatPrivate) && !UserContext.require().id().equals(record.createBy)) {
+            throw ApiException.notFound("文件不存在");
+        }
         return bytes(record, true);
     }
 
@@ -170,6 +186,15 @@ public class FileController {
     /**
      * 按主键取文件记录，不存在时抛 404。
      */
+    /** 按当前用户校验对话附件的归属。 */
+    public SysFile chatAttachment(LoginUser user, String id) {
+        SysFile record = require(id);
+        if (!Boolean.TRUE.equals(record.chatPrivate) || !user.id().equals(record.createBy)) {
+            throw ApiException.notFound("附件不存在");
+        }
+        return record;
+    }
+
     private SysFile require(String id) {
         Optional<SysFile> found = sql.selectOne(Query.of(SysFile.class).where("id", id));
         SysFile record = found.orElse(null);
@@ -185,7 +210,9 @@ public class FileController {
     private ResponseEntity<byte[]> bytes(SysFile record, boolean attachment) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType(record.contentType));
-        headers.setCacheControl(CacheControl.maxAge(CACHE_TTL).cachePublic());
+        headers.setCacheControl(Boolean.TRUE.equals(record.chatPrivate)
+                ? CacheControl.noStore() : CacheControl.maxAge(CACHE_TTL).cachePublic());
+        headers.set("X-Content-Type-Options", "nosniff");
         headers.setContentDisposition(attachment
                 ? ContentDisposition.attachment().filename(record.name, StandardCharsets.UTF_8).build()
                 : ContentDisposition.inline().filename(record.name, StandardCharsets.UTF_8).build());

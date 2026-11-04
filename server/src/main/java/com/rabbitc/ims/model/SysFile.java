@@ -58,6 +58,10 @@ public class SysFile {
     @ModelField(column = "create_by", text = "上传者", order = 6, look = false)
     public String createBy;
 
+    /** 对话附件只允许上传者读取。历史记录为空时沿用原有公开地址。 */
+    @ModelField(column = "chat_private", type = FieldType.BOOLEAN, text = "对话私有", order = 8, look = false)
+    public Boolean chatPrivate;
+
     /** 上传时间。 */
     @ModelField(column = "created_at", type = FieldType.DATE, text = "上传时间", order = 7,
             look = false)

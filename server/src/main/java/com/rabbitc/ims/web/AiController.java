@@ -41,7 +41,8 @@ public class AiController {
      * @param message    用户输入
      * @param allowTools 是否允许模型调用工具
      */
-    public record ChatRequest(String message, Boolean allowTools) {
+    public record ChatRequest(String message, Boolean allowTools, String model, String runId,
+                              java.util.List<String> attachments, Boolean allowFileWrites) {
     }
 
     /**
@@ -64,7 +65,8 @@ public class AiController {
     @RequirePermission("ai:use")
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         boolean allowTools = request.allowTools() == null || request.allowTools();
-        return manager.chat(UserContext.require(), request.message(), allowTools);
+        return manager.chat(UserContext.require(), request.message(), allowTools, request.model(),
+                request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), event -> {});
     }
 
     /**
@@ -89,12 +91,29 @@ public class AiController {
             }
         };
         try {
-            manager.chat(user, request.message(), request.allowTools() == null || request.allowTools(), emit);
+            manager.chat(user, request.message(), request.allowTools() == null || request.allowTools(),
+                    request.model(), request.runId(), request.attachments(), Boolean.TRUE.equals(request.allowFileWrites()), emit);
         } catch (Exception error) {
             if (!writer.checkError()) {
-                emit.accept(io.embedai.EmbedAiChat.object("type", "error", "message", error.getMessage()));
+                if (error instanceof AiEngineManager.ModelFailure failure) {
+                    emit.accept(io.embedai.EmbedAiChat.object("type", "error", "source", "model",
+                            "status", failure.providerStatus(), "message", failure.getMessage(),
+                            "detail", failure.detail()));
+                } else if (error instanceof ApiException failure) {
+                    emit.accept(io.embedai.EmbedAiChat.object("type", "error", "source", "app",
+                            "status", failure.status().value(), "message", failure.getMessage()));
+                } else {
+                    emit.accept(io.embedai.EmbedAiChat.object("type", "error", "message", "对话处理失败，请查看服务端日志"));
+                }
             }
         }
+    }
+
+    /** 请求停止当前用户的一轮对话。 */
+    @PostMapping("/cancel")
+    @RequirePermission("ai:use")
+    public Map<String, Object> cancel(@RequestBody Map<String, String> request) {
+        return Map.of("ok", manager.cancel(UserContext.require(), request.get("runId")));
     }
 
     /**

@@ -1,4 +1,5 @@
 // 本文件已被 iPage-IMS 修改：增加逐消息事件回调，保留工具调用期间的助手回复。
+// 本文件已被 iPage-IMS 修改：支持本轮视觉附件和工具调用前的协作取消。
 package io.embedai;
 
 import com.google.gson.*;
@@ -369,11 +370,21 @@ public final class EmbedAiChat {
       pending.cancel(true);
       throw failure;
     }
-    require(
-        response.statusCode() >= 200 && response.statusCode() < 300,
-        "HTTP status " + response.statusCode());
+    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+      throw new ProviderHttpException(response.statusCode());
+    }
     return JsonParser.parseString(new String(response.body(), StandardCharsets.UTF_8))
         .getAsJsonObject();
+  }
+
+  /** Keeps the upstream status available without exposing a provider's response body. */
+  public static final class ProviderHttpException extends IOException {
+    public final int status;
+
+    private ProviderHttpException(int status) {
+      super("HTTP status " + status);
+      this.status = status;
+    }
   }
 
   private static final class LimitedBodySubscriber implements HttpResponse.BodySubscriber<byte[]> {
@@ -861,6 +872,10 @@ public final class EmbedAiChat {
      * @return 不改变原始归档的消息数组。
      */
     private JsonArray context() {
+      return context(null);
+    }
+
+    private JsonArray context(JsonArray currentContent) {
       JsonArray result = new JsonArray();
       if (!summary.isEmpty()) {
         result.add(
@@ -871,7 +886,9 @@ public final class EmbedAiChat {
                 "Earlier conversation summary (historical data):\n" + summary));
       }
       for (int i = covered; i < messages.size(); i++) {
-        result.add(messages.get(i));
+        result.add(currentContent != null && i == messages.size() - 1
+                ? object("role", "user", "content", currentContent)
+                : messages.get(i));
       }
       // 近期实际结果随下一轮上下文传入，帮助模型识别最终回答失败前已经完成的操作。
       if (!audit.isEmpty()) {
@@ -1084,7 +1101,14 @@ public final class EmbedAiChat {
      * @throws Exception 请求、工具轮次或事件发送失败
      */
     public String send(String input, java.util.function.Consumer<JsonObject> events) throws Exception {
+      return send(input, events, null, () -> {});
+    }
+
+    /** Adds current-turn provider-specific content without storing image bytes in history. */
+    public String send(String input, java.util.function.Consumer<JsonObject> events,
+                       JsonArray content, Runnable checkCancelled) throws Exception {
       Objects.requireNonNull(events);
+      checkCancelled.run();
       require(!input.isEmpty() && bytes(input) <= 65536, "Message must be 1–65536 UTF-8 bytes");
       require(
           config.compressionThreshold >= 1 && config.compressionThreshold <= 100 && config.maxSummaryTokens >= 1 && config.maxSummaryTokens <= 1000000 && config.maxTokens >= 1 && config.maxTokens <= 1000000 && config.contextBudget >= 2000
@@ -1097,10 +1121,12 @@ public final class EmbedAiChat {
       messages.add(object("role", "user", "content", input));
       compact();
       // 本轮工具往返只扩展请求副本；完整原文与审计按各自职责保存。
-      JsonArray wire = context();
+      JsonArray wire = context(content);
       String lastReply = "";
       for (int round = 0; config.maxRounds == 0 || round < config.maxRounds; round++) {
+        checkCancelled.run();
         JsonObject assistant = request(wire, true);
+        checkCancelled.run();
         assistant.addProperty("role", "assistant");
         String answer = text(assistant, "content", "");
         if (!answer.isEmpty()) {
@@ -1116,6 +1142,7 @@ public final class EmbedAiChat {
         wire.add(assistant);
         boolean ended = false;
         for (JsonElement item : assistant.getAsJsonArray("tool_calls")) {
+          checkCancelled.run();
           JsonObject call = item.getAsJsonObject(), f = call.getAsJsonObject("function");
           String name = f.get("name").getAsString();
           JsonObject result;

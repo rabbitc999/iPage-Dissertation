@@ -25,6 +25,19 @@ public class AiProperties {
     /** 模型 ID。 */
     private String model = "deepseek-chat";
 
+    /** 同一供应商下可选模型及其最低角色等级和视觉能力。 */
+    private java.util.Map<String, ModelAccess> models = new java.util.LinkedHashMap<>();
+
+    public record ModelAccess(int minLevel, boolean vision) {}
+
+    public java.util.Map<String, ModelAccess> getModels() {
+        return models;
+    }
+
+    public void setModels(java.util.Map<String, ModelAccess> models) {
+        this.models = models;
+    }
+
     /** API Key，仅存在服务端内存。 */
     private String apiKey = "";
 

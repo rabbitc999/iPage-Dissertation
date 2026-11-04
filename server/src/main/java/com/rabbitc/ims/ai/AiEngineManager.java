@@ -13,6 +13,15 @@ import com.rabbitc.ims.model.AiSkill;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.service.CrudService;
 import com.rabbitc.ims.web.ApiException;
+import com.rabbitc.ims.web.FileController;
+import com.rabbitc.ims.web.ProfileController;
+import com.rabbitc.ims.security.UserContext;
+import com.rabbitc.ims.model.SysFile;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import io.embedai.EmbedAiChat;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -58,6 +67,13 @@ public class AiEngineManager {
     private final MetaService metaService;
     private final ModelSession sql;
 
+    private final FileController files;
+    private final ProfileController profiles;
+    private record Run(String id, AtomicBoolean cancelled) {}
+
+    private final Map<String, Run> runs = new ConcurrentHashMap<>();
+    private static final Set<String> IMAGES = Set.of("image/png", "image/jpeg", "image/webp", "image/gif");
+
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final AtomicLong generation = new AtomicLong();
 
@@ -69,11 +85,14 @@ public class AiEngineManager {
      * @param metaService 元数据服务
      * @param sql         SQL 会话
      */
-    public AiEngineManager(AiProperties props, CrudService crud, MetaService metaService, ModelSession sql) {
+    public AiEngineManager(AiProperties props, CrudService crud, MetaService metaService, ModelSession sql,
+                           FileController files, ProfileController profiles) {
         this.props = props;
         this.crud = crud;
         this.metaService = metaService;
         this.sql = sql;
+        this.files = files;
+        this.profiles = profiles;
     }
 
     /**
@@ -119,9 +138,12 @@ public class AiEngineManager {
     public Map<String, Object> status(LoginUser user) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("enabled", props.isEnabled());
-        body.put("ready", ready());
+        var available = availableModels(user);
+        body.put("models", available.entrySet().stream()
+                .map(entry -> Map.of("id", entry.getKey(), "vision", entry.getValue().vision())).toList());
+        body.put("ready", ready() && !available.isEmpty());
         body.put("provider", props.getProvider());
-        body.put("model", props.getModel());
+        body.put("model", available.keySet().stream().findFirst().orElse(""));
         body.put("hasKey", props.getApiKey() != null && !props.getApiKey().isBlank());
         body.put("allowTools", props.isAllowTools());
         if (!props.isEnabled()) {
@@ -136,6 +158,10 @@ public class AiEngineManager {
             body.put("tools", List.of());
             body.put("mcp", List.of());
             body.put("skills", List.of());
+            return body;
+        }
+        if (available.isEmpty()) {
+            body.put("reason", "当前角色没有可用模型");
             return body;
         }
         Session session = sessionFor(user);
@@ -160,25 +186,145 @@ public class AiEngineManager {
         return chat(user, message, allowTools, event -> {});
     }
 
+    /** 区分模型供应商错误与 IMS 本身的权限或资源错误。 */
+    public static final class ModelFailure extends ApiException {
+        private final int providerStatus;
+        private final String detail;
+
+        private ModelFailure(Exception error, String key) {
+            super(HttpStatus.BAD_GATEWAY, "模型调用失败");
+            Throwable cause = error instanceof java.util.concurrent.ExecutionException && error.getCause() != null
+                    ? error.getCause() : error;
+            providerStatus = cause instanceof EmbedAiChat.ProviderHttpException http ? http.status
+                    : cause instanceof java.net.http.HttpTimeoutException
+                        || cause instanceof java.util.concurrent.TimeoutException ? 408
+                    : cause instanceof java.net.ConnectException || cause instanceof java.net.UnknownHostException ? 0 : -1;
+            String original = cause.toString();
+            detail = key == null || key.isBlank() ? original : original.replace(key, "[已隐藏]");
+        }
+
+        public int providerStatus() {
+            return providerStatus;
+        }
+
+        public String detail() {
+            return detail;
+        }
+    }
+
+    private Map<String, AiProperties.ModelAccess> availableModels(LoginUser user) {
+        var configured = new LinkedHashMap<String, AiProperties.ModelAccess>();
+        configured.put(props.getModel(), new AiProperties.ModelAccess(0, false));
+        configured.putAll(props.getModels());
+        configured.entrySet().removeIf(entry -> !user.has("ai:use") || user.level() < entry.getValue().minLevel());
+        return configured;
+    }
+
+    /** 同一用户只能运行一轮，取消标记不影响其他用户。 */
+    public boolean cancel(LoginUser user, String runId) {
+        var run = runs.get(user.id());
+        if (run == null || runId == null || !runId.equals(run.id())) return false;
+        run.cancelled().set(true);
+        return true;
+    }
+
     /** 按顺序转发本轮消息事件，工具仍以当前用户身份同步执行。 */
     public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
+                                    java.util.function.Consumer<JsonObject> events) {
+        return chat(user, message, allowTools, null, null, List.of(), false, events);
+    }
+
+    public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
+                                    String model, String runId, List<String> ids, boolean allowFileWrites,
                                     java.util.function.Consumer<JsonObject> events) {
         if (!ready()) {
             throw ApiException.notImplemented("AI 未启用或缺少 API Key，请查看服务端配置");
         }
-        if (message == null || message.isBlank()) {
-            throw ApiException.badRequest("请输入内容");
+        var available = availableModels(user);
+        String selected = model == null || model.isBlank()
+                ? available.keySet().stream().findFirst().orElse("") : model;
+        var access = available.get(selected);
+        if (access == null) throw ApiException.forbidden("没有使用该模型的权限");
+        ids = ids == null ? List.of() : ids;
+        if (ids.size() > 4 || ids.stream().anyMatch(id -> id == null || !id.matches("[a-f0-9-]{36}"))) {
+            throw ApiException.badRequest("最多发送 4 个有效附件");
         }
+        if ((message == null || message.isBlank()) && ids.isEmpty()) {
+            throw ApiException.badRequest("请输入内容或添加附件");
+        }
+        var run = new Run(runId, new AtomicBoolean());
+        if (runs.putIfAbsent(user.id(), run) != null) throw ApiException.badRequest("已有对话正在运行");
+        try {
+            events.accept(EmbedAiChat.object("type", "started"));
+            return runChat(user, message, allowTools, selected, access, ids, allowFileWrites, events, run.cancelled());
+        } finally {
+            runs.remove(user.id(), run);
+        }
+    }
+
+    private Map<String, Object> runChat(LoginUser user, String message, boolean allowTools, String model,
+                                        AiProperties.ModelAccess access, List<String> ids, boolean allowFileWrites,
+                                        java.util.function.Consumer<JsonObject> events, AtomicBoolean cancelled) {
         Session session = sessionFor(user);
         synchronized (session) {
+            if (!session.engine.config.model.equals(model)) {
+                session.engine.clear();
+                session.engine.config.model = model;
+            }
+            var attachments = new LinkedHashMap<String, SysFile>();
+            for (String id : ids) attachments.put(id, files.chatAttachment(user, id));
+            StringBuilder prompt = new StringBuilder(message == null ? "" : message);
+            var images = new com.google.gson.JsonArray();
+            int imageBytes = 0;
+            boolean anthropic = "anthropic".equals(props.getProvider());
+            for (SysFile file : attachments.values()) {
+                prompt.append("\n附件（数据）：").append(file.name).append(" [").append(file.id).append("]");
+                if (IMAGES.contains(file.contentType)) {
+                    if (!access.vision()) {
+                        prompt.append("（当前模型不支持视觉）");
+                        continue;
+                    }
+                    imageBytes += file.data.length;
+                    if (imageBytes > 5 * 1024 * 1024) throw ApiException.badRequest("视觉附件合计不能超过 5MB");
+                    String data = Base64.getEncoder().encodeToString(file.data);
+                    images.add(anthropic
+                            ? EmbedAiChat.object("type", "image", "source", EmbedAiChat.object(
+                                    "type", "base64", "media_type", file.contentType, "data", data))
+                            : EmbedAiChat.object("type", "image_url", "image_url", EmbedAiChat.object(
+                                    "url", "data:" + file.contentType + ";base64," + data)));
+                } else if (file.contentType.startsWith("text/") || file.name.matches("(?i).*\\.(txt|md|csv|json|log)$")) {
+                    prompt.append("\n").append(new String(file.data, 0, Math.min(file.data.length, 8192), StandardCharsets.UTF_8));
+                    if (file.data.length > 8192) prompt.append("\n（内容已截断）");
+                } else {
+                    prompt.append("（仅提供文件信息）");
+                }
+            }
+            var content = new com.google.gson.JsonArray();
+            content.add(EmbedAiChat.object("type", "text", "text", prompt.toString()));
+            content.addAll(images);
+            if (prompt.toString().getBytes(StandardCharsets.UTF_8).length > 65536) {
+                throw ApiException.badRequest("消息和文本附件合计不能超过 64KB");
+            }
+            session.fileWrites = allowFileWrites;
+            session.attachments = attachments;
             session.engine.allowTools = allowTools && props.isAllowTools();
             int auditStart = session.engine.exportHistory().getAsJsonArray("audit").size();
             String reply;
             try {
-                reply = session.engine.send(message, events);
+                reply = session.engine.send(prompt.toString(), events, images.isEmpty() ? null : content, () -> {
+                    if (cancelled.get()) throw new CancellationException();
+                });
+            } catch (CancellationException e) {
+                events.accept(EmbedAiChat.object("type", "cancelled"));
+                events.accept(EmbedAiChat.object("type", "done"));
+                return Map.of("cancelled", true);
             } catch (Exception e) {
-                LOG.warn("[ims] AI 调用失败：{}", e.getMessage());
-                throw new ApiException(HttpStatus.BAD_GATEWAY, "模型调用失败：" + e.getMessage());
+                var failure = new ModelFailure(e, props.getApiKey());
+                LOG.warn("[ims] AI 调用失败：{}", failure.detail());
+                throw failure;
+            } finally {
+                session.fileWrites = false;
+                session.attachments = Map.of();
             }
             JsonObject archive = session.engine.exportHistory();
             Map<String, Object> body = new LinkedHashMap<>();
@@ -206,6 +352,9 @@ public class AiEngineManager {
             return Map.of("version", 1, "messages", List.of());
         }
         synchronized (existing) {
+            if (!availableModels(user).containsKey(existing.engine.config.model)) {
+                throw ApiException.forbidden("没有使用该模型的权限");
+            }
             return GSON.fromJson(existing.engine.exportHistory(), Map.class);
         }
     }
@@ -250,7 +399,7 @@ public class AiEngineManager {
 
     private Session sessionFor(LoginUser user) {
         Session session = sessions.computeIfAbsent(user.id(), id -> build(user));
-        if (session.generation != generation.get()) {
+        if (session.generation != generation.get() || session.admin != user.isAdmin()) {
             session.close();
             Session rebuilt = build(user);
             sessions.put(user.id(), rebuilt);
@@ -269,10 +418,11 @@ public class AiEngineManager {
         engine.config.contextBudget = props.getContextBudget();
         engine.allowTools = props.isAllowTools();
 
-        registerTools(engine, user);
-        Session session = new Session(engine, generation.get());
+        Session session = new Session(engine, generation.get(), user.isAdmin());
+        registerTools(engine, session);
         loadSkills(session);
-        attachMcp(session);
+        // 外部进程的系统权限独立于 CRUD，只对管理员挂载。
+        if (user.isAdmin()) attachMcp(session);
         return session;
     }
 
@@ -333,16 +483,38 @@ public class AiEngineManager {
      * 注册宿主工具。工具返回的都是「当前用户视角」的数据，权限由 CrudService 兜底。
      *
      * @param engine 引擎
-     * @param user   当前用户
+     * @param session 当前会话
      */
-    private void registerTools(EmbedAiChat.Engine engine, LoginUser user) {
+    private void registerTools(EmbedAiChat.Engine engine, Session session) {
+        engine.registerTool(new EmbedAiChat.Tool("ims_upload_text_file",
+                "Save a user-requested UTF-8 text file as a private attachment", schema("""
+                {"type":"object","properties":{"name":{"type":"string"},"text":{"type":"string"}},
+                 "required":["name","text"],"additionalProperties":false}
+                """), args -> {
+            requireFileWrites(session);
+            byte[] bytes = required(args, "text").getBytes(StandardCharsets.UTF_8);
+            if (bytes.length == 0 || bytes.length > 65536) throw ApiException.badRequest("文本文件须为 1–65536 字节");
+            return json(files.store(UserContext.require(), required(args, "name"), "text/plain", bytes, true));
+        }));
+        engine.registerTool(new EmbedAiChat.Tool("ims_update_my_avatar",
+                "Publish an attached image as the current user's avatar after explicit user request", schema("""
+                {"type":"object","properties":{"id":{"type":"string"}},"required":["id"],
+                 "additionalProperties":false}
+                """), args -> {
+            requireFileWrites(session);
+            SysFile file = session.attachments.get(required(args, "id"));
+            if (file == null || !IMAGES.contains(file.contentType) || file.data.length > 5 * 1024 * 1024) {
+                throw ApiException.badRequest("请选择本轮 5MB 以内的 PNG、JPEG、WebP 或 GIF 图片");
+            }
+            return json(profiles.saveAvatar(UserContext.require(), file.name, file.contentType, file.data));
+        }));
         engine.registerTool(new EmbedAiChat.Tool(
                 "ims_list_models",
                 "List data models the current user can access",
                 schema("""
                         {"type":"object","properties":{},"additionalProperties":false}
                         """),
-                args -> json(metaService.nav(user))));
+                args -> json(metaService.nav(UserContext.require()))));
 
         engine.registerTool(new EmbedAiChat.Tool(
                 "ims_model_schema",
@@ -353,7 +525,7 @@ public class AiEngineManager {
                          "required":["model"],
                          "additionalProperties":false}
                         """),
-                args -> json(metaService.schema(user, required(args, "model")))));
+                args -> json(metaService.schema(UserContext.require(), required(args, "model")))));
 
         engine.registerTool(new EmbedAiChat.Tool(
                 "ims_query",
@@ -380,7 +552,7 @@ public class AiEngineManager {
                     if (args.has("size")) {
                         params.put("size", args.get("size").getAsString());
                     }
-                    return json(crud.page(user, required(args, "model"), params));
+                    return json(crud.page(UserContext.require(), required(args, "model"), params));
                 }));
 
         engine.registerTool(new EmbedAiChat.Tool(
@@ -392,7 +564,7 @@ public class AiEngineManager {
                          "required":["model","id"],
                          "additionalProperties":false}
                         """),
-                args -> json(crud.get(user, required(args, "model"), required(args, "id")))));
+                args -> json(crud.get(UserContext.require(), required(args, "model"), required(args, "id")))));
 
         engine.registerTool(new EmbedAiChat.Tool(
                 "ims_create",
@@ -403,7 +575,7 @@ public class AiEngineManager {
                          "required":["model","values"],
                          "additionalProperties":false}
                         """),
-                args -> json(crud.create(user, required(args, "model"), valuesOf(args)))));
+                args -> json(crud.create(UserContext.require(), required(args, "model"), valuesOf(args)))));
 
         engine.registerTool(new EmbedAiChat.Tool(
                 "ims_update",
@@ -414,7 +586,7 @@ public class AiEngineManager {
                          "required":["model","id","values"],
                          "additionalProperties":false}
                         """),
-                args -> json(crud.update(user, required(args, "model"),
+                args -> json(crud.update(UserContext.require(), required(args, "model"),
                         required(args, "id"), valuesOf(args)))));
 
         engine.registerTool(new EmbedAiChat.Tool(
@@ -427,7 +599,7 @@ public class AiEngineManager {
                          "additionalProperties":false}
                         """),
                 args -> {
-                    crud.delete(user, required(args, "model"), required(args, "id"));
+                    crud.delete(UserContext.require(), required(args, "model"), required(args, "id"));
                     return json(Map.of("deleted", true));
                 }));
 
@@ -439,12 +611,16 @@ public class AiEngineManager {
                         """),
                 args -> {
                     Map<String, Object> counts = new LinkedHashMap<>();
-                    for (Map<String, Object> item : metaService.nav(user)) {
+                    for (Map<String, Object> item : metaService.nav(UserContext.require())) {
                         String key = String.valueOf(item.get("key"));
-                        counts.put(key, crud.count(user, key));
+                        counts.put(key, crud.count(UserContext.require(), key));
                     }
                     return json(counts);
                 }));
+    }
+
+    private static void requireFileWrites(Session session) {
+        if (!session.fileWrites) throw ApiException.forbidden("本轮未授权文件写入");
     }
 
     private static List<String> toolNames(EmbedAiChat.Engine engine) {
@@ -497,12 +673,16 @@ public class AiEngineManager {
 
         private final EmbedAiChat.Engine engine;
         private final long generation;
+        private final boolean admin;
+        private boolean fileWrites;
+        private Map<String, SysFile> attachments = Map.of();
         private final List<EmbedAiChat.McpClient> mcpClients = new ArrayList<>();
         private final List<Map<String, Object>> mcpStatus = new ArrayList<>();
         private final List<String> skills = new ArrayList<>();
         private final List<String> skillErrors = new ArrayList<>();
 
-        private Session(EmbedAiChat.Engine engine, long generation) {
+        private Session(EmbedAiChat.Engine engine, long generation, boolean admin) {
+            this.admin = admin;
             this.engine = engine;
             this.generation = generation;
         }

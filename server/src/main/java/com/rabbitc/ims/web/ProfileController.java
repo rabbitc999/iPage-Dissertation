@@ -83,8 +83,13 @@ public class ProfileController {
             LOG.warn("读取头像内容失败", e);
             throw ApiException.badRequest("读取上传内容失败");
         }
+        return saveAvatar(user, file.getOriginalFilename(), contentType, data);
+    }
+
+    /** 已确认的头像更新复用个人中心的发布与审计逻辑。 */
+    public Map<String, Object> saveAvatar(LoginUser user, String name, String contentType, byte[] data) {
         SysFile record = new SysFile();
-        record.name = sanitizeName(file.getOriginalFilename());
+        record.name = sanitizeName(name);
         record.contentType = contentType;
         record.size = (long) data.length;
         record.data = data;

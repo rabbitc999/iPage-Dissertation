@@ -55,6 +55,11 @@ ims:
     provider: ${IMS_AI_PROVIDER:openai}
     base-url: ${IMS_AI_BASE_URL:https://api.deepseek.com/v1}
     model: ${IMS_AI_MODEL:deepseek-chat}
+    # 可选模型共用上面的供应商地址和下面的 API Key。按实际模型 ID 配置。
+    # models:
+    #   "[your-vision-model-id]":
+    #     min-level: 2
+    #     vision: true
     api-key: ${IMS_AI_KEY:}
     max-tokens: 2048
     context-budget: 16000

@@ -105,7 +105,7 @@ export async function upload(path, file) {
       body: form
     })
   } catch (error) {
-    throw new ApiError('无法连接服务端，请确认后端已启动', 0)
+    throw Object.assign(new ApiError('无法连接服务端，请确认后端已启动', 0), { detail: String(error) })
   }
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
@@ -134,9 +134,14 @@ export async function streamChat(body, onEvent) {
   const headers = { Accept: 'application/x-ndjson', 'Content-Type': 'application/json' }
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch('/api/ai/chat/stream', {
-    method: 'POST', headers, body: JSON.stringify(body)
-  })
+  let response
+  try {
+    response = await fetch('/api/ai/chat/stream', {
+      method: 'POST', headers, body: JSON.stringify(body)
+    })
+  } catch (cause) {
+    throw Object.assign(new ApiError('无法连接服务端', 0), { detail: String(cause) })
+  }
   if (!response.ok) {
     if (response.status === 401) setToken(null)
     const error = await response.json().catch(() => null)
@@ -149,7 +154,12 @@ export async function streamChat(body, onEvent) {
   const consume = line => {
     if (!line.trim()) return
     const event = JSON.parse(line)
-    if (event.type === 'error') throw new Error(event.message || '模型调用失败')
+    if (event.type === 'error') {
+      throw Object.assign(new ApiError(event.message || '模型调用失败', event.status), {
+        source: event.source,
+        detail: event.detail
+      })
+    }
     if (event.type === 'done') finished = true
     onEvent(event)
   }
