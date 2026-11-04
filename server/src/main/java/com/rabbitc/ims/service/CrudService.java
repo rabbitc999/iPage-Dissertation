@@ -1,5 +1,8 @@
 package com.rabbitc.ims.service;
 
+import com.rabbitc.ims.model.Ticket;
+import java.time.LocalDate;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitc.ipage.dialect.Dialect;
 import com.rabbitc.ipage.enums.FieldType;
@@ -67,6 +70,7 @@ public class CrudService {
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ModelSession sql;
+    private final AssociationAccess associations;
     private final ModelRegistry registry;
     private final MetaService metaService;
     private final AuditService audit;
@@ -84,8 +88,9 @@ public class CrudService {
      * @param hooks       模型钩子
      */
     public CrudService(ModelSession sql, ModelRegistry registry, MetaService metaService,
-                       AuditService audit, ObjectMapper mapper, List<ModelHook> hooks) {
+                       AuditService audit, ObjectMapper mapper, List<ModelHook> hooks, AssociationAccess associations) {
         this.sql = sql;
+        this.associations = associations;
         this.registry = registry;
         this.metaService = metaService;
         this.audit = audit;
@@ -109,8 +114,11 @@ public class CrudService {
 
         Query query = Query.of(meta, sql.dialect());
         applyScope(user, meta, query);
-        applyKeyword(meta, query, params.get("kw"));
-        applyFilters(meta, query, params);
+        applyKeyword(user, meta, query, params.get("kw"));
+        applyFilters(user, meta, query, params);
+        if (meta.modelClass() == Ticket.class) {
+            ticketFilters(query, params.get("from"), params.get("to"), params.get("department"));
+        }
         applySort(user, meta, query, params.get("sort"), params.get("order"));
 
         int page = number(params.get("page"), 1, 1, Integer.MAX_VALUE);
@@ -159,6 +167,48 @@ public class CrudService {
         return toRow(user, meta, entity);
     }
 
+    /** 报表与明细复用工单列表的数据范围和日期条件。 */
+    public List<Ticket> ticketsForReport(LoginUser user, String from, String to, String department) {
+        ModelMeta meta = registry.requireMeta("ticket");
+        requireView(user, meta, "ticket");
+        Query query = Query.of(meta, sql.dialect());
+        applyScope(user, meta, query);
+        ticketFilters(query, from, to, department);
+        return sql.selectList(query.orderBy("createdAt", SortType.DESC).orderBy("id", SortType.ASC));
+    }
+
+    private static void ticketFilters(Query query, String from, String to, String department) {
+        LocalDate start = reportDate(from);
+        LocalDate end = reportDate(to);
+        if (start != null && end != null && end.isBefore(start)) {
+            throw ApiException.badRequest("结束日期不能早于开始日期");
+        }
+        if (start != null) {
+            query.where("createdAt", OperatorType.GTE, start.atStartOfDay());
+        }
+        if (end != null) {
+            query.where("createdAt", OperatorType.LT, end.plusDays(1).atStartOfDay());
+        }
+        if (department != null && !department.isBlank()) {
+            query.where("deptId", department);
+        }
+    }
+
+    private static LocalDate reportDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            LocalDate date = LocalDate.parse(value);
+            if (date.getYear() < 1 || date.getYear() > 9999) {
+                throw ApiException.badRequest("日期必须在 0001 至 9999 年之间");
+            }
+            return date;
+        } catch (java.time.format.DateTimeParseException e) {
+            throw ApiException.badRequest("日期格式应为 YYYY-MM-DD");
+        }
+    }
+
     // ------------------------------------------------------------------ 写
 
     /**
@@ -175,6 +225,7 @@ public class CrudService {
 
         Object entity = meta.newInstance();
         applyBody(meta, entity, body, user, true);
+        associations.assignDepartment(user, meta, entity);
         fillCreateDefaults(meta, entity, user);
         // String 主键不会触发数据库自增，ipage 在 insert 时自动补 UUID
         forEachHook(meta, hook -> hook.beforeCreate(meta, entity, body, user));
@@ -208,6 +259,7 @@ public class CrudService {
 
         Object entity = before;
         applyBody(meta, entity, body, user, false);
+        associations.assignDepartment(user, meta, entity);
         fillUpdateDefaults(meta, entity);
         forEachHook(meta, hook -> hook.beforeUpdate(meta, entity, before, body, user));
 
@@ -235,7 +287,10 @@ public class CrudService {
         }
         forEachHook(meta, hook -> hook.beforeDelete(meta, entity, user));
         sql.transaction(tx -> {
-            tx.deleteById(meta.modelClass(), id);
+            if (tx.deleteById(meta.modelClass(), id) == 0) {
+                throw ApiException.notFound(meta.name() + " 不存在：" + id);
+            }
+            forEachHook(meta, hook -> hook.afterDelete(meta, entity, user));
             audit.record(user, "DELETE", meta.name(), id, meta.display(entity));
         });
     }
@@ -290,7 +345,7 @@ public class CrudService {
      * @param query 查询
      * @param kw    关键字
      */
-    private void applyKeyword(ModelMeta meta, Query query, String kw) {
+    private void applyKeyword(LoginUser user, ModelMeta meta, Query query, String kw) {
         if (kw == null || kw.isBlank()) {
             return;
         }
@@ -298,7 +353,7 @@ public class CrudService {
         Dialect dialect = sql.dialect();
         Set<Object> ids = new LinkedHashSet<>();
         for (FieldDescriptor field : meta.fields()) {
-            if (field.type() != FieldType.STRING || !field.visible()) {
+            if (field.type() != FieldType.STRING || !field.visible() || !field.lookPermission().granted(user.level())) {
                 continue;
             }
             String statement = "SELECT " + dialect.quote(meta.idColumn())
@@ -318,17 +373,17 @@ public class CrudService {
         query.in(meta.idField().name(), new ArrayList<>(ids));
     }
 
-    private void applyFilters(ModelMeta meta, Query query, Map<String, String> params) {
+    private void applyFilters(LoginUser user, ModelMeta meta, Query query, Map<String, String> params) {
         for (FieldDescriptor field : meta.fields()) {
-            if (!field.isColumn()) {
+            if (!field.isColumn() || !field.visible() || !field.lookPermission().granted(user.level())) {
                 continue;
             }
             String raw = params.get("f_" + field.name());
-            if (raw == null || raw.isBlank()) {
+            OperatorType operator = OperatorType.parse(params.get("op_" + field.name()));
+            if (operator.needsValue() && (raw == null || raw.isBlank())) {
                 continue;
             }
-            OperatorType operator = OperatorType.parse(params.get("op_" + field.name()));
-            Object value = QueryValues.convert(field, raw);
+            Object value = operator.needsValue() ? QueryValues.convert(field, raw) : null;
             query.where(field.name(), operator, value);
         }
     }
@@ -370,7 +425,15 @@ public class CrudService {
                 continue;
             }
             Object raw = body.containsKey(field.name()) ? body.get(field.name()) : body.get(field.column());
-            field.write(entity, convert(field, raw));
+            Object value = convert(field, raw);
+            if (field.type() == FieldType.ASSOCIATION_ID && field.javaType() == String.class) {
+                String id = value instanceof String text && !text.isBlank() ? text : null;
+                if (!Objects.equals(id, field.read(entity))) {
+                    associations.validate(user, meta.modelClass(), field, id);
+                }
+                value = id;
+            }
+            field.write(entity, value);
         }
     }
 

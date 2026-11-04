@@ -10,10 +10,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { api, upload } from '../api/http'
 import { toast, toastError } from '../api/toast'
+import { applyBrand } from '../stores/brand'
 
 const form = reactive({ siteName: '', logoUrl: '', loginImageUrl: '' })
 const loading = ref(true)
 const saving = ref(false)
+const refreshing = ref(false)
 const logoInput = ref(null)
 const loginInput = ref(null)
 
@@ -67,11 +69,29 @@ async function save() {
       }
     })
     form.siteName = data?.siteName || form.siteName
-    toast('设置已保存，刷新登录页与侧边栏即可生效', 'success')
+    applyBrand(data)
+    toast('设置已保存', 'success')
   } catch (e) {
     toastError(e)
   } finally {
     saving.value = false
+  }
+}
+
+async function refreshBrandCache() {
+  refreshing.value = true
+  try {
+    const { status, brand } = await api('/settings/brand-cache/refresh', { method: 'POST' })
+    applyBrand(brand)
+    if (status === 'unavailable') {
+      toast('Redis 暂不可用，当前页面已从数据库更新，共享缓存未清理', 'error')
+    } else {
+      toast(status === 'disabled' ? 'Redis 未启用，已从数据库更新' : '品牌缓存已刷新', 'success')
+    }
+  } catch (e) {
+    toastError(e)
+  } finally {
+    refreshing.value = false
   }
 }
 
@@ -131,8 +151,11 @@ onMounted(load)
         </div>
 
         <div class="actions-row">
-          <button class="btn primary" type="submit" :disabled="saving">
+          <button class="btn primary" type="submit" :disabled="saving || refreshing">
             {{ saving ? '保存中…' : '保存设置' }}
+          </button>
+          <button class="btn" type="button" :disabled="saving || refreshing" @click="refreshBrandCache">
+            {{ refreshing ? '刷新中…' : '刷新页面' }}
           </button>
         </div>
       </form>
@@ -164,6 +187,6 @@ onMounted(load)
 .preview.small { width: 64px; height: 64px; }
 .placeholder { border-style: dashed; }
 .actions { display: flex; gap: 6px; }
-.actions-row { margin-top: 4px; }
+.actions-row { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 8px; }
 .visually-hidden { display: none; }
 </style>

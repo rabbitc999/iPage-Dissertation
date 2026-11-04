@@ -39,7 +39,7 @@
 
 - **后端**：Java 17 · Spring Boot 3.3 · iPage（内置源码）· EmbedAiChat（内置源码）
 - **数据库**：默认 H2 文件库（开箱即跑），一键切 MySQL / PostgreSQL
-- **前端**：Vue 3.5 · Vue Router 4 · Vite 6，无其他运行时依赖
+- **前端**：Vue 3.5 · Vue Router 4 · Vite 6，AI 回复支持 Markdown 与 LaTeX
 - **AI**：OpenAI 兼容协议（默认 DeepSeek），MCP 走 stdio JSON-RPC
 
 ## 快速启动
@@ -47,7 +47,8 @@
 ### 1. 编译并启动后端（自带前端，单端口 8080）
 
 ```bash
-# 需要 JDK 17+
+# 需要 JDK 17+ 和 Node.js 22+
+(cd web && npm ci && npm run build)
 ./mvnw -pl server -am package -DskipTests
 cd server && java -jar target/ims-server-1.0.0.jar
 ```
@@ -70,9 +71,45 @@ cd web && npm install && npm run dev   # http://127.0.0.1:5173，/api 代理到 
 
 项目自带 `.run/` 运行配置，打开工程后在右上角直接选：
 
-- `ims-server`：启动后端（8080，同端口托管前端）
+- `ims-server`：启动后端（8080，开发时配合前端开发服务）
 - `ims-web (dev)`：前端开发服务（5173，代理 /api）
-- `ims-web (build)`：前端构建并同步进后端 static
+- `ims-web (build)`：构建到 `web/dist`，由 Maven 打入服务端 JAR
+
+## 工单报表与数据约束
+
+工作台按工单创建日期（含起止日）和部门筛选，报表、明细链接与 CSV 使用同一数据范围。逾期指截止日早于服务器当天且仍为待处理或处理中的工单。没有截止日的历史工单不计入逾期。
+
+业务关联选项和保存使用相同范围。部门范围账号只能选择本部门及本部门人员，个人范围账号选择本人作为处理人，员工关联则按创建人过滤。管理员与全部数据范围账号可以选择有效的跨部门关联。
+
+升级已有库前请备份。启用表结构同步时，系统先检查部门编码、工号、资产编号及工单、员工、资产和用户的关键关联，再为通过检查的数据建立唯一索引和外键。若启动日志列出重复或失效关联，修复后重启。多实例部署时先用一个实例完成表结构升级。
+
+## 可选 RabbitMQ 业务事件
+
+默认关闭。启用后，部门、员工、资产和工单的新增、修改、删除会写入数据库发件箱。后台向持久队列发送 JSON，并在 RabbitMQ 确认且消息成功路由后清理发件箱。故障期间保留待发事件，恢复连接后继续投递。
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `IMS_RABBITMQ_ENABLED=true` | 启用事件记录与后台投递 |
+| `IMS_RABBITMQ_QUEUE` | 队列名，默认 `ims.business.events` |
+| `SPRING_RABBITMQ_HOST`、`SPRING_RABBITMQ_PORT` | Broker 地址与端口 |
+| `SPRING_RABBITMQ_USERNAME`、`SPRING_RABBITMQ_PASSWORD` | 具备队列声明和发布权限的凭据 |
+| `SPRING_RABBITMQ_VIRTUAL_HOST` | RabbitMQ 虚拟主机 |
+
+每条消息包含 `eventId`、`model`、`action`、`recordId` 和 `occurredAt`。消费者按 `eventId` 去重，投递语义为至少一次。停用期间保留此前未确认的事件，重新启用后补发，停用期间的新写入不生成事件。
+
+## 可选 Redis 品牌缓存
+
+Redis 默认关闭。启用后，公开接口 `GET /api/brand` 缓存站点名、侧边栏 Logo 地址和登录页品牌图地址。缓存未命中或 Redis 不可用时从数据库读取。保存设置后自动清理缓存，拥有系统设置权限的用户也可以在「图像设置」点击「刷新页面」，强制刷新品牌缓存。
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `IMS_REDIS_ENABLED=true` | 启用 Redis 缓存 |
+| `SPRING_DATA_REDIS_HOST`、`SPRING_DATA_REDIS_PORT` | Redis 地址与端口，默认 `localhost:6379` |
+| `SPRING_DATA_REDIS_USERNAME`、`SPRING_DATA_REDIS_PASSWORD` | Redis ACL 凭据（如适用） |
+| `IMS_REDIS_KEY_PREFIX` | 缓存键前缀，默认 `ipage-ims`。共用 Redis 的独立环境应使用各自的前缀 |
+| `IMS_REDIS_BRAND_TTL_SECONDS` | 缓存有效期，默认 60 秒 |
+
+刷新只作用于当前应用的品牌缓存键。如果 Redis 在保存或刷新时不可用，当前页面可用数据库结果更新，其他实例可能在缓存到期前读到旧值。
 
 ## 演示账号
 

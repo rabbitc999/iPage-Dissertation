@@ -10,6 +10,7 @@ import com.rabbitc.ims.enums.TicketPriority;
 import com.rabbitc.ims.enums.TicketStatus;
 import com.rabbitc.ims.enums.TicketType;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -71,6 +72,10 @@ public class Ticket {
     /** 描述。 */
     @ModelField(column = "description", text = "描述", order = 10)
     public String description;
+
+    /** 可选截止日期，历史工单未填写时不计为逾期。 */
+    @ModelField(column = "due_date", type = FieldType.DATE, text = "截止日期", order = 11)
+    public LocalDate dueDate;
 
     /** 创建人。 */
     @ModelField(column = "create_by", type = FieldType.NUMBER, text = "创建人", order = 20, look = false)

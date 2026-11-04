@@ -32,11 +32,11 @@ export class ApiError extends Error {
 /**
  * 调用后端接口。
  * @param {string} path 以 / 开头的路径，会自动加 /api 前缀
- * @param {{method?:string, body?:any, params?:object}} options 选项
+ * @param {{method?:string, body?:any, params?:object, responseType?:string}} options 选项
  * @returns {Promise<any>} 响应体
  */
 export async function api(path, options = {}) {
-  const { method = 'GET', body, params } = options
+  const { method = 'GET', body, params, responseType } = options
   const url = new URL('/api' + path, window.location.origin)
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -61,6 +61,7 @@ export async function api(path, options = {}) {
     throw new ApiError('无法连接服务端，请确认后端已启动', 0)
   }
 
+  if (response.ok && responseType === 'blob') return response.blob()
   const text = await response.text()
   let payload = null
   if (text) {
@@ -126,4 +127,47 @@ export function query(params) {
   }
   const text = search.toString()
   return text ? `?${text}` : ''
+}
+
+/** 消费逐行 JSON 对话事件；TextDecoder 保留跨网络分块的中文字符。 */
+export async function streamChat(body, onEvent) {
+  const headers = { Accept: 'application/x-ndjson', 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch('/api/ai/chat/stream', {
+    method: 'POST', headers, body: JSON.stringify(body)
+  })
+  if (!response.ok) {
+    if (response.status === 401) setToken(null)
+    const error = await response.json().catch(() => null)
+    throw new ApiError(error?.message || `请求失败（${response.status}）`, response.status)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let pending = ''
+  let finished = false
+  const consume = line => {
+    if (!line.trim()) return
+    const event = JSON.parse(line)
+    if (event.type === 'error') throw new Error(event.message || '模型调用失败')
+    if (event.type === 'done') finished = true
+    onEvent(event)
+  }
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      pending += done ? decoder.decode() : decoder.decode(value, { stream: true })
+      let end
+      while ((end = pending.indexOf('\n')) >= 0) {
+        consume(pending.slice(0, end))
+        pending = pending.slice(end + 1)
+      }
+      if (done) break
+    }
+    consume(pending)
+    if (!finished) throw new Error('对话连接中断，已显示的回复和已执行的工具操作仍然有效')
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
 }

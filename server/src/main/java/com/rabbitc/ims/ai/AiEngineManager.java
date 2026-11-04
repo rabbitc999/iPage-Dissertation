@@ -157,6 +157,12 @@ public class AiEngineManager {
      * @return 回答与工具审计
      */
     public Map<String, Object> chat(LoginUser user, String message, boolean allowTools) {
+        return chat(user, message, allowTools, event -> {});
+    }
+
+    /** 按顺序转发本轮消息事件，工具仍以当前用户身份同步执行。 */
+    public Map<String, Object> chat(LoginUser user, String message, boolean allowTools,
+                                    java.util.function.Consumer<JsonObject> events) {
         if (!ready()) {
             throw ApiException.notImplemented("AI 未启用或缺少 API Key，请查看服务端配置");
         }
@@ -166,9 +172,10 @@ public class AiEngineManager {
         Session session = sessionFor(user);
         synchronized (session) {
             session.engine.allowTools = allowTools && props.isAllowTools();
+            int auditStart = session.engine.exportHistory().getAsJsonArray("audit").size();
             String reply;
             try {
-                reply = session.engine.send(message);
+                reply = session.engine.send(message, events);
             } catch (Exception e) {
                 LOG.warn("[ims] AI 调用失败：{}", e.getMessage());
                 throw new ApiException(HttpStatus.BAD_GATEWAY, "模型调用失败：" + e.getMessage());
@@ -176,7 +183,11 @@ public class AiEngineManager {
             JsonObject archive = session.engine.exportHistory();
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("reply", reply);
-            body.put("audit", toJava(archive.get("audit")));
+            com.google.gson.JsonArray currentAudit = new com.google.gson.JsonArray();
+            for (int i = auditStart; i < archive.getAsJsonArray("audit").size(); i++) {
+                currentAudit.add(archive.getAsJsonArray("audit").get(i));
+            }
+            body.put("audit", toJava(currentAudit));
             body.put("tools", toolNames(session.engine));
             return body;
         }

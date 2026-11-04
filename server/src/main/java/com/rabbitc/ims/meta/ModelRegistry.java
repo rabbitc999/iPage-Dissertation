@@ -37,7 +37,7 @@ public class ModelRegistry {
      * </ul>
      */
     private static final Set<String> NOT_EXPOSED =
-            Set.of("userRole", "rolePermission", "viewConfig", "sysFile", "sysSetting");
+            Set.of("userRole", "rolePermission", "viewConfig", "sysFile", "sysSetting", "businessEvent");
 
     private final Map<String, Class<?>> models = new LinkedHashMap<>();
 

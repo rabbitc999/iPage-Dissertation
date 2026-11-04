@@ -68,6 +68,36 @@ public class AiController {
     }
 
     /**
+     * 同一请求持续输出换行分隔的 JSON 事件；保持当前请求线程及用户权限上下文。
+     * 流开始后的错误通过 error 事件报告，断连不重发已执行操作。
+     */
+    @PostMapping(value = "/chat/stream", produces = "application/x-ndjson")
+    @RequirePermission("ai:use")
+    public void stream(@RequestBody ChatRequest request,
+                       jakarta.servlet.http.HttpServletResponse response) throws java.io.IOException {
+        var user = UserContext.require();
+        response.setContentType("application/x-ndjson");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("X-Accel-Buffering", "no");
+        var writer = response.getWriter();
+        java.util.function.Consumer<com.google.gson.JsonObject> emit = event -> {
+            writer.println(event.toString());
+            writer.flush();
+            if (writer.checkError()) {
+                throw new java.io.UncheckedIOException(new java.io.IOException("Chat client disconnected"));
+            }
+        };
+        try {
+            manager.chat(user, request.message(), request.allowTools() == null || request.allowTools(), emit);
+        } catch (Exception error) {
+            if (!writer.checkError()) {
+                emit.accept(io.embedai.EmbedAiChat.object("type", "error", "message", error.getMessage()));
+            }
+        }
+    }
+
+    /**
      * 导出历史归档。
      *
      * @return 归档

@@ -30,7 +30,7 @@ Apache-2.0 与 MIT 兼容，可以放心一起分发。**使用、修改、闭�
 | 仓库 | GitHub：<https://github.com/rabbitc999/EmbedAiChat> |
 | 复制自提交 | `bd63c8de27257f5bc163ef8e11fc68402146a6f9`（2026-11-03） |
 | 许可证 | AGPL-3.0，全文见 `libs/embed-ai-chat/LICENSE.txt` |
-| 是否修改 | 未修改源码 |
+| 是否修改 | 已由 iPage-IMS 修改（2026-11-04）：增加同步消息事件回调与 assistant_reply / assistant_end 工具，保存并输出工具调用期间的助手回复；保留原 send 接口 |
 | 义务 | 强著佐权：分发 + **通过网络提供服务** 都触发源码开放义务 |
 
 #### 这是本仓库唯一的许可证冲突点，必须理解清楚
@@ -90,6 +90,9 @@ AGPL-3.0 是本仓库唯一的**强著佐权**（copyleft）许可证。它的�
 | com.h2database:h2 | 随 Boot 管理 | MPL-2.0 或 EPL-1.0（双许可） | 仅开发/演示用，可换库 |
 | com.mysql:mysql-connector-j | 随 Boot 管理 | GPL-2.0 + Universal FOSS Exception | 见下方说明 |
 | org.postgresql:postgresql | 随 Boot 管理 | BSD-2-Clause | 宽松，无义务 |
+| Spring AMQP（spring-boot-starter-amqp） | Spring Boot BOM | Apache-2.0 | 可选 RabbitMQ 事件投递 |
+| Spring Data Redis（spring-boot-starter-data-redis） / Lettuce | Spring Boot BOM | Apache-2.0 | 可选 Redis 品牌缓存 |
+| RabbitMQ Java Client | Spring Boot BOM | Apache-2.0（上游三许可之一） | Spring AMQP 传递依赖 |
 | com.google.code.gson:gson | 2.11.0 | Apache-2.0 | embed-ai-chat 的依赖 |
 | org.slf4j:slf4j-api | 2.0.13 | MIT | ipage 的唯一依赖 |
 
@@ -105,6 +108,10 @@ MariaDB Connector/J（LGPL-2.1）。用 PostgreSQL 则完全无此顾虑。
 | --- | --- | --- |
 | vue | ^3.5.13 | MIT |
 | vue-router | ^4.5.0 | MIT |
+| markdown-it | ^15.0.3 | MIT |
+| @mdit/plugin-katex | ^1.1.5 | MIT |
+| @mdit/plugin-tex（数学渲染插件的传递依赖） | — | MIT |
+| katex | ^0.19.1 | MIT |
 | vite | ^6.0.7 | MIT |
 | @vitejs/plugin-vue | ^5.2.1 | MIT |
 | esbuild（vite 传递依赖） | — | MIT |

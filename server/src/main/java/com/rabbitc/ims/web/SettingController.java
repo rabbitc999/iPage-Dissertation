@@ -7,10 +7,12 @@ import com.rabbitc.ims.model.SysSetting;
 import com.rabbitc.ims.security.RequirePermission;
 import com.rabbitc.ims.security.UserContext;
 import com.rabbitc.ims.service.AuditService;
+import com.rabbitc.ims.service.RedisBrandCache;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
@@ -47,6 +49,7 @@ public class SettingController {
 
     private final ModelSession sql;
     private final AuditService audit;
+    private final RedisBrandCache brandCache;
 
     /**
      * 构造控制器。
@@ -54,9 +57,10 @@ public class SettingController {
      * @param sql   SQL 会话
      * @param audit 审计服务
      */
-    public SettingController(ModelSession sql, AuditService audit) {
+    public SettingController(ModelSession sql, AuditService audit, ObjectProvider<RedisBrandCache> cache) {
         this.sql = sql;
         this.audit = audit;
+        this.brandCache = cache.getIfAvailable();
     }
 
     /**
@@ -82,6 +86,7 @@ public class SettingController {
     @RequirePermission("system:setting:manage")
     @PutMapping("/api/settings")
     public Map<String, Object> save(@RequestBody Map<String, Object> body) {
+        Map<String, String> values = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : body.entrySet()) {
             String key = entry.getKey();
             if (!DEFINED_KEYS.containsKey(key)) {
@@ -94,10 +99,15 @@ public class SettingController {
             if (value.length() > 255) {
                 throw ApiException.badRequest("设置值过长，大图请通过文件接口上传后引用链接");
             }
-            upsert(key, value);
+            values.put(key, value);
         }
-        audit.record(UserContext.require(), "修改", "系统设置",
-                null, body.keySet().toString());
+        sql.transaction(tx -> {
+            values.forEach(this::upsert);
+            audit.record(UserContext.require(), "修改", "系统设置", null, values.keySet().toString());
+        });
+        if (brandCache != null) {
+            brandCache.invalidate();
+        }
         return all();
     }
 
@@ -107,10 +117,32 @@ public class SettingController {
      * @return 站点名与图像地址
      */
     @GetMapping("/api/brand")
-    public Map<String, Object> brand() {
-        Map<String, Object> result = new LinkedHashMap<>();
-        DEFINED_KEYS.forEach((key, defaultValue) -> result.put(key, defaultValue));
-        findAll().forEach(setting -> result.put(setting.settingKey, setting.settingValue));
+    public Map<String, String> brand() {
+        if (brandCache == null) {
+            return readBrand();
+        }
+        Map<String, String> cached = brandCache.get(this::readBrand);
+        Map<String, String> result = new LinkedHashMap<>(DEFINED_KEYS);
+        result.replaceAll((key, defaultValue) -> Optional.ofNullable(cached.get(key)).orElse(defaultValue));
+        return result;
+    }
+
+    /** 手动使共享缓存失效，并返回当前数据库中的品牌设置。 */
+    @RequirePermission("system:setting:manage")
+    @PostMapping("/api/settings/brand-cache/refresh")
+    public Map<String, Object> refreshBrandCache() {
+        String status = brandCache == null ? "disabled" : brandCache.invalidate() ? "refreshed" : "unavailable";
+        Map<String, String> current = "refreshed".equals(status) ? brand() : readBrand();
+        return Map.of("status", status, "brand", current);
+    }
+
+    private Map<String, String> readBrand() {
+        Map<String, String> result = new LinkedHashMap<>(DEFINED_KEYS);
+        for (SysSetting setting : findAll()) {
+            if (DEFINED_KEYS.containsKey(setting.settingKey) && setting.settingValue != null) {
+                result.put(setting.settingKey, setting.settingValue);
+            }
+        }
         return result;
     }
 

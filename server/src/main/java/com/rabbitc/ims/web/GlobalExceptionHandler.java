@@ -80,6 +80,21 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(IpagDataAccessException.class)
     public ResponseEntity<Map<String, Object>> handleSql(IpagDataAccessException e) {
+        if (e.getCause() instanceof java.sql.SQLException cause) {
+            String state = cause.getSQLState();
+            if ("23505".equals(state) || cause.getErrorCode() == 1062) {
+                return body(HttpStatus.CONFLICT, "业务编号已存在，请使用不同的编号");
+            }
+            if ("23503".equals(state) || "23506".equals(state)
+                    || cause.getErrorCode() == 1451 || cause.getErrorCode() == 1452) {
+                String detail = cause.getMessage().toLowerCase(java.util.Locale.ROOT);
+                String record = detail.contains("fk_ims_ticket") ? "工单"
+                        : detail.contains("fk_ims_asset") ? "资产"
+                        : detail.contains("fk_ims_employee") ? "员工"
+                        : detail.contains("fk_ims_user") ? "用户" : "关联记录";
+                return body(HttpStatus.CONFLICT, "无法保存或删除：" + record + "的关联关系仍在使用或已失效");
+            }
+        }
         LOG.error("[ims] 数据库操作失败：{}", e.getMessage(), e);
         return body(HttpStatus.INTERNAL_SERVER_ERROR, "数据库操作失败，请查看服务端日志");
     }

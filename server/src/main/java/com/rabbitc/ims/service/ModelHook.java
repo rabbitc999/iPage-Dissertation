@@ -82,4 +82,8 @@ public interface ModelHook {
      */
     default void beforeDelete(ModelMeta meta, Object entity, LoginUser user) {
     }
+
+    /** 删除后、提交前，用于记录与业务删除一同提交的事件。 */
+    default void afterDelete(ModelMeta meta, Object entity, LoginUser user) {
+    }
 }

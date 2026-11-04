@@ -7,10 +7,12 @@
  * 下一次对话自动按新配置重建。
  */
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { api } from '../api/http'
+import { api, streamChat } from '../api/http'
 import { auth, can } from '../stores/auth'
 import { toast, toastError } from '../api/toast'
 import DataForm from '../components/DataForm.vue'
+import { renderChatMarkdown } from '../api/chat-markdown'
+import 'katex/dist/katex.min.css'
 
 const tab = ref('chat')
 const status = ref(null)
@@ -51,12 +53,14 @@ async function send() {
   sending.value = true
   await scrollBottom()
   try {
-    const result = await api('/ai/chat', {
-      method: 'POST',
-      body: { message: text, allowTools: allowTools.value }
+    await streamChat({ message: text, allowTools: allowTools.value }, event => {
+      if (event.type === 'assistant') {
+        messages.value.push({ role: 'assistant', html: renderChatMarkdown(event.text) })
+      } else if (event.type === 'tool') {
+        messages.value.push({ role: 'assistant', text: '', audit: [event.audit] })
+      }
+      scrollBottom()
     })
-    messages.value.push({ role: 'assistant', text: result.reply, audit: result.audit || [] })
-    await scrollBottom()
   } catch (e) {
     messages.value.push({ role: 'error', text: e.message })
     await scrollBottom()
@@ -66,6 +70,7 @@ async function send() {
 }
 
 async function resetChat() {
+  if (sending.value) return
   try {
     await api('/ai/reset', { method: 'POST' })
     messages.value = []
@@ -76,6 +81,7 @@ async function resetChat() {
 }
 
 async function reloadSessions() {
+  if (sending.value) return
   try {
     await api('/ai/reload', { method: 'POST' })
     toast('会话已重建', 'success')
@@ -203,7 +209,8 @@ onMounted(async () => {
         <div v-for="(message, index) in messages" :key="index" class="msg" :class="message.role">
           <div class="who">{{ message.role === 'user' ? '我' : message.role === 'error' ? '错误' : '助手' }}</div>
           <div class="bubble">
-            <div class="text">{{ message.text }}</div>
+            <div v-if="message.html" class="markdown" v-html="message.html"></div>
+            <div v-else class="text">{{ message.text }}</div>
             <div v-if="message.audit?.length" class="audit">
               <span class="muted small">工具记录：</span>
               <span v-for="(item, i) in message.audit" :key="i" class="badge grey">{{ auditText(item) }}</span>
@@ -225,7 +232,7 @@ onMounted(async () => {
             <span class="small">允许调用工具</span>
           </label>
           <div class="grow"></div>
-          <button class="btn" :disabled="!messages.length" @click="resetChat">清空</button>
+          <button class="btn" :disabled="sending || !messages.length" @click="resetChat">清空</button>
           <button class="btn primary" :disabled="sending || !ready || !input.trim()" @click="send">
             {{ sending ? '思考中…' : '发送' }}
           </button>
@@ -236,7 +243,7 @@ onMounted(async () => {
     <div v-else-if="tab === 'tools'" class="card panel">
       <h3>宿主工具</h3>
       <p class="muted small">
-        这些工具由服务端注册，最终调用通用 CRUD；因此权限、数据范围、审计与页面操作完全一致。
+        这些工具由服务端注册；数据工具复用通用 CRUD 权限，assistant_reply 发送消息，assistant_end 结束本次处理。
       </p>
       <div class="tool-grid">
         <div v-for="name in tools" :key="name" class="tool">
@@ -384,10 +391,18 @@ onMounted(async () => {
   color: var(--muted);
   padding-top: 8px;
 }
-.bubble { max-width: 78%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px; }
+.bubble { min-width: 0; max-width: 78%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px; }
 .msg.user .bubble { background: var(--primary-weak); border-color: transparent; }
 .msg.error .bubble { background: var(--danger-weak); border-color: transparent; color: var(--danger); }
 .text { white-space: pre-wrap; word-break: break-word; }
+.markdown { overflow-wrap: anywhere; }
+.markdown :deep(> :first-child) { margin-top: 0; }
+.markdown :deep(> :last-child) { margin-bottom: 0; }
+.markdown :deep(pre) { overflow-x: auto; padding: 10px; border-radius: 6px; background: var(--panel); }
+.markdown :deep(table) { display: block; overflow-x: auto; border-collapse: collapse; }
+.markdown :deep(th), .markdown :deep(td) { padding: 5px 8px; border: 1px solid var(--border); }
+.markdown :deep(img) { max-width: 100%; }
+.markdown :deep(.katex-display) { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
 .audit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 
 .chat-input { border-top: 1px solid var(--border); padding: 12px 14px; }

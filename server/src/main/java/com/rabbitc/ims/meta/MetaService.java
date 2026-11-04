@@ -1,5 +1,7 @@
 package com.rabbitc.ims.meta;
 
+import com.rabbitc.ims.service.AssociationAccess;
+
 import com.rabbitc.ipage.annotation.ValidatorLength;
 import com.rabbitc.ipage.annotation.ValidatorNotNull;
 import com.rabbitc.ipage.annotation.ValidatorPattern;
@@ -36,6 +38,7 @@ import java.util.Set;
 public class MetaService {
 
     private final ModelSession sql;
+    private final AssociationAccess associations;
     private final ModelRegistry registry;
 
     /**
@@ -44,8 +47,9 @@ public class MetaService {
      * @param sql      SQL 会话
      * @param registry 模型注册表
      */
-    public MetaService(ModelSession sql, ModelRegistry registry) {
+    public MetaService(ModelSession sql, ModelRegistry registry, AssociationAccess associations) {
         this.sql = sql;
+        this.associations = associations;
         this.registry = registry;
     }
 
@@ -111,7 +115,7 @@ public class MetaService {
             if (!field.visible() || !field.lookPermission().granted(user.level())) {
                 continue;
             }
-            fields.add(describe(field, user, associationColumns));
+            fields.add(describe(field, user, modelClass, associationColumns));
         }
         if (modelClass == User.class) {
             fields.addAll(virtualFieldsForUser());
@@ -139,7 +143,7 @@ public class MetaService {
      * @param associationColumns 已有对象型关联字段的列
      * @return 描述
      */
-    private Map<String, Object> describe(FieldDescriptor field, LoginUser user, Set<String> associationColumns) {
+    private Map<String, Object> describe(FieldDescriptor field, LoginUser user, Class<?> owner, Set<String> associationColumns) {
         boolean editable = field.isColumn() && !field.fixed()
                            && field.editPermission().granted(user.level());
         boolean inTable = true;
@@ -180,7 +184,7 @@ public class MetaService {
             result.put("options", ModelMeta.enumOptions(field));
         } else if (field.type() == FieldType.ASSOCIATION_ID && field.relatedClass() != null) {
             result.put("target", ModelRegistry.keyOf(field.relatedClass()));
-            result.put("options", sql.options(field.relatedClass()));
+            result.put("options", associations.options(user, owner, field));
         }
         return result;
     }
@@ -279,6 +283,6 @@ public class MetaService {
                 associationColumns.add(field.column());
             }
         }
-        return meta.field(name).map(field -> describe(field, user, associationColumns));
+        return meta.field(name).map(field -> describe(field, user, meta.modelClass(), associationColumns));
     }
 }

@@ -3,6 +3,14 @@ server:
   shutdown: graceful
 
 spring:
+  data:
+    redis:
+      connect-timeout: 500ms
+      timeout: 500ms
+  rabbitmq:
+    connection-timeout: 3s
+    publisher-confirm-type: correlated
+    publisher-returns: true
   application:
     name: ipage-ims
   datasource:
@@ -32,6 +40,15 @@ ims:
   token-ttl-hours: 12
   seed: true
   sync-schema: true
+
+  redis:
+    enabled: ${IMS_REDIS_ENABLED:false}
+    key-prefix: ${IMS_REDIS_KEY_PREFIX:ipage-ims}
+    brand-ttl-seconds: ${IMS_REDIS_BRAND_TTL_SECONDS:60}
+
+  rabbitmq:
+    enabled: ${IMS_RABBITMQ_ENABLED:false}
+    queue: ${IMS_RABBITMQ_QUEUE:ims.business.events}
 
   ai:
     enabled: ${IMS_AI_ENABLED:false}

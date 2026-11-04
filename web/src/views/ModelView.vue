@@ -57,13 +57,19 @@ const allChecked = computed(() => rows.value.length > 0 && selected.value.length
  */
 function params() {
   const result = { page: page.value, size: size.value }
+  if (key.value === 'ticket') {
+    for (const filter of ['from', 'to', 'department']) {
+      if (typeof route.query[filter] === 'string') result[filter] = route.query[filter]
+    }
+  }
   if (kw.value.trim()) result.kw = kw.value.trim()
   if (sort.value) {
     result.sort = sort.value
     result.order = order.value
   }
   for (const filter of filters.value) {
-    if (!filter.field || filter.value === '' || filter.value === null) continue
+    const unary = ['IS_NULL', 'IS_NOT_NULL'].includes(filter.op)
+    if (!filter.field || (!unary && (filter.value === '' || filter.value === null))) continue
     result[`f_${filter.field}`] = filter.value
     result[`op_${filter.field}`] = filter.op
   }
@@ -309,7 +315,7 @@ async function bootstrap() {
   }
 }
 
-watch(key, () => {
+watch([key, () => route.query.from, () => route.query.to, () => route.query.department], () => {
   page.value = 1
   kw.value = ''
   filters.value = []
@@ -393,6 +399,11 @@ onUnmounted(() => clearTimeout(hideTimer))
         />
         <button class="btn ghost sm" @click="removeFilter(index)">移除</button>
       </div>
+    </div>
+
+    <div v-if="key === 'ticket' && (route.query.from || route.query.to || route.query.department)" class="row wrap">
+      <span class="muted small">已应用工作台的日期与部门筛选</span>
+      <router-link to="/m/ticket">清除报表筛选</router-link>
     </div>
 
     <div v-if="error" class="card error-card">{{ error }}</div>

@@ -5,13 +5,18 @@
  * 数据来自 {@code GET /api/stats}：统计卡、工单状态分布、最近审计。
  * 所有计数都已按当前用户的数据范围过滤，因此不同账号看到的数字不同。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/http'
 import { auth } from '../stores/auth'
 import { toastError } from '../api/toast'
 
 const data = ref(null)
 const error = ref('')
+const reportError = ref('')
+const loadingReport = ref(false)
+const exporting = ref(false)
+const draft = reactive({ from: '', to: '', department: '' })
+const applied = ref({})
 
 const statusLabels = {
   OPEN: '待处理',
@@ -32,7 +37,7 @@ const ticketRows = computed(() => {
   }))
 })
 
-const totalTickets = computed(() => ticketRows.value.reduce((sum, item) => sum + item.value, 0))
+const totalTickets = computed(() => data.value?.ticketTotal ?? 0)
 
 const actionLabels = {
   CREATE: '新增',
@@ -55,6 +60,38 @@ function scopeText() {
   if (scope === 'ALL') return '全部数据'
   if (scope === 'DEPT') return '本部门数据'
   return '仅本人数据'
+}
+
+async function applyFilters() {
+  loadingReport.value = true
+  reportError.value = ''
+  const params = { ...draft }
+  try {
+    data.value = await api('/stats', { params })
+    applied.value = params
+  } catch (e) {
+    reportError.value = e.message
+  } finally {
+    loadingReport.value = false
+  }
+}
+
+async function downloadCsv() {
+  exporting.value = true
+  reportError.value = ''
+  try {
+    const blob = await api('/stats/tickets.csv', { params: applied.value, responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = '工单报表.csv'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (e) {
+    reportError.value = e.message
+  } finally {
+    exporting.value = false
+  }
 }
 
 onMounted(async () => {
@@ -93,12 +130,25 @@ onMounted(async () => {
       </div>
 
       <div class="split">
-        <div class="card panel">
+        <div v-if="data.tickets" class="card panel">
           <div class="panel-head">
-            <h3>工单状态</h3>
+            <h3>工单报表</h3>
             <span class="muted small">共 {{ totalTickets }} 条</span>
           </div>
-          <div v-if="ticketRows.length" class="bars">
+          <form class="row wrap report-filters" @submit.prevent="applyFilters">
+            <label>创建起日 <input v-model="draft.from" class="input tiny" type="date" /></label>
+            <label>创建止日 <input v-model="draft.to" class="input tiny" type="date" /></label>
+            <label>部门
+              <select v-model="draft.department" class="select tiny">
+                <option value="">全部可见部门</option>
+                <option v-for="(name, id) in data.ticketDepartments" :key="id" :value="id">{{ name }}</option>
+              </select>
+            </label>
+            <button class="btn sm primary" :disabled="loadingReport">筛选</button>
+          </form>
+          <p v-if="reportError" class="small" role="alert">{{ reportError }}</p>
+          <div class="report-summary small">逾期 {{ data.overdueTickets }} 条 · 截止日已过且仍待处理或处理中</div>
+          <div v-if="totalTickets" class="bars">
             <div v-for="row in ticketRows" :key="row.key" class="bar-line">
               <span class="bar-label">{{ row.label }}</span>
               <div class="bar-track">
@@ -108,7 +158,10 @@ onMounted(async () => {
             </div>
           </div>
           <div v-else class="empty">没有可查看的工单</div>
-          <router-link to="/m/ticket" class="panel-foot">查看全部工单 →</router-link>
+          <div class="row wrap panel-foot">
+            <router-link :to="{ path: '/m/ticket', query: applied }">查看筛选明细 →</router-link>
+            <button class="btn sm" :disabled="loadingReport || exporting || !totalTickets" @click="downloadCsv">导出 CSV</button>
+          </div>
         </div>
 
         <div class="card panel">
@@ -169,6 +222,10 @@ onMounted(async () => {
 .panel-head h3 { font-size: 15px; }
 .panel-foot { margin-top: auto; padding-top: 12px; font-size: 13px; }
 
+.report-filters { gap: 8px; align-items: end; }
+.report-filters label { display: grid; gap: 4px; font-size: 12px; }
+.report-summary { margin: 12px 0; color: var(--muted); }
+.panel-foot.row { justify-content: space-between; gap: 8px; }
 .bars { display: grid; gap: 12px; }
 .bar-line { display: grid; grid-template-columns: 64px 1fr 32px; align-items: center; gap: 10px; }
 .bar-label { color: var(--muted); font-size: 13px; }

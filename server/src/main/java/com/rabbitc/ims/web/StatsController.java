@@ -12,6 +12,10 @@ import com.rabbitc.ims.model.Ticket;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.security.UserContext;
 import com.rabbitc.ims.service.CrudService;
+import com.rabbitc.ims.service.AssociationAccess;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestParam;
+import java.time.LocalDate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,6 +44,7 @@ public class StatsController {
     private final ModelRegistry registry;
     private final MetaService metaService;
     private final ModelSession sql;
+    private final AssociationAccess associations;
 
     /**
      * 构造控制器。
@@ -49,11 +54,12 @@ public class StatsController {
      * @param metaService 元数据服务
      * @param sql        SQL 会话
      */
-    public StatsController(CrudService crud, ModelRegistry registry, MetaService metaService, ModelSession sql) {
+    public StatsController(CrudService crud, ModelRegistry registry, MetaService metaService, ModelSession sql, AssociationAccess associations) {
         this.crud = crud;
         this.registry = registry;
         this.metaService = metaService;
         this.sql = sql;
+        this.associations = associations;
     }
 
     /**
@@ -62,7 +68,9 @@ public class StatsController {
      * @return 卡片、工单分布与最近审计
      */
     @GetMapping("/stats")
-    public Map<String, Object> stats() {
+    public Map<String, Object> stats(@RequestParam(required = false) String from,
+                                     @RequestParam(required = false) String to,
+                                     @RequestParam(required = false) String department) {
         LoginUser user = UserContext.require();
         Map<String, Object> body = new LinkedHashMap<>();
 
@@ -80,32 +88,59 @@ public class StatsController {
             cards.add(card);
         }
         body.put("cards", cards);
-        body.put("tickets", ticketStats(user));
+        if (metaService.canView(user, registry.requireMeta("ticket"), "ticket")) {
+            List<Ticket> tickets = crud.ticketsForReport(user, from, to, department);
+            Map<String, Long> counts = new LinkedHashMap<>();
+            for (TicketStatus status : TicketStatus.values()) {
+                counts.put(status.name(), 0L);
+            }
+            long overdue = 0;
+            LocalDate today = LocalDate.now();
+            for (Ticket ticket : tickets) {
+                if (ticket.status != null) {
+                    counts.merge(ticket.status.name(), 1L, Long::sum);
+                }
+                if ((ticket.status == TicketStatus.OPEN || ticket.status == TicketStatus.PROCESSING)
+                        && ticket.dueDate != null && ticket.dueDate.isBefore(today)) {
+                    overdue++;
+                }
+            }
+            body.put("tickets", counts);
+            body.put("ticketTotal", tickets.size());
+            body.put("overdueTickets", overdue);
+            body.put("ticketDepartments", associations.departments(user));
+        }
         body.put("recent", recentAudit(user));
         return body;
     }
 
-    private Map<String, Object> ticketStats(LoginUser user) {
-        Map<String, Object> stats = new LinkedHashMap<>();
-        ModelMeta meta = registry.requireMeta("ticket");
-        if (!metaService.canView(user, meta, "ticket")) {
-            return stats;
+    /** 导出与工作台统计和工单列表相同范围的工单。 */
+    @GetMapping("/stats/tickets.csv")
+    public ResponseEntity<String> exportTickets(@RequestParam(required = false) String from,
+                                                @RequestParam(required = false) String to,
+                                                @RequestParam(required = false) String department) {
+        List<Ticket> tickets = crud.ticketsForReport(UserContext.require(), from, to, department);
+        StringBuilder csv = new StringBuilder("\uFEFF工单ID,标题,状态,优先级,部门,处理人,创建时间,截止日期\r\n");
+        for (Ticket ticket : tickets) {
+            csv.append(String.join(",", csvCell(ticket.id), csvCell(ticket.title), csvCell(ticket.status),
+                    csvCell(ticket.priority), csvCell(ticket.dept == null ? null : ticket.dept.name),
+                    csvCell(ticket.assignee == null ? null : ticket.assignee.name),
+                    csvCell(ticket.createdAt), csvCell(ticket.dueDate))).append("\r\n");
         }
-        for (TicketStatus status : TicketStatus.values()) {
-            Query query = Query.of(meta, sql.dialect());
-            query.where("status", status.name());
-            if (!user.isAdmin() && user.dataScope() == com.rabbitc.ims.enums.DataScope.DEPT) {
-                if (user.deptId() == null) {
-                    stats.put(status.name(), 0L);
-                    continue;
-                }
-                query.where("deptId", user.deptId());
-            } else if (!user.isAdmin() && user.dataScope() == com.rabbitc.ims.enums.DataScope.SELF) {
-                query.where("createBy", user.id());
-            }
-            stats.put(status.name(), sql.count(query));
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/csv; charset=utf-8")
+                .header("Content-Disposition", "attachment; filename=ims-tickets.csv")
+                .body(csv.toString());
+    }
+
+    private static String csvCell(Object value) {
+        String text = value == null ? "" : value.toString();
+        String stripped = text.stripLeading();
+        if ((!stripped.isEmpty() && "=+-@".indexOf(stripped.charAt(0)) >= 0)
+                || text.startsWith("\t") || text.startsWith("\r") || text.startsWith("\n")) {
+            text = "'" + text;
         }
-        return stats;
+        return "\"" + text.replace("\"", "\"\"") + "\"";
     }
 
     private List<Map<String, Object>> recentAudit(LoginUser user) {

@@ -33,6 +33,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
 
         <!-- 数据库：默认 H2 文件库，开箱即用；切换 MySQL 时改 profile 即可 -->
         <dependency>
@@ -76,6 +84,17 @@
     </dependencies>
 
     <build>
+        <!-- 打包本次前端构建。旧的模板静态文件不参与打包。 -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes><exclude>static/**</exclude></excludes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../web/dist</directory>
+                <targetPath>static</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

@@ -58,6 +58,7 @@ public class DataInitializer implements ApplicationRunner {
     private static final Logger LOG = LoggerFactory.getLogger(DataInitializer.class);
 
     private final ModelSession sql;
+    private final BusinessConstraints constraints;
     private final ModelRegistry registry;
     private final ImsProperties properties;
     private final AiProperties aiProperties;
@@ -76,8 +77,9 @@ public class DataInitializer implements ApplicationRunner {
      * @param hasher       密码哈希器
      */
     public DataInitializer(ModelSession sql, ModelRegistry registry, ImsProperties properties,
-                           AiProperties aiProperties, PasswordHasher hasher) {
+                           AiProperties aiProperties, PasswordHasher hasher, BusinessConstraints constraints) {
         this.sql = sql;
+        this.constraints = constraints;
         this.registry = registry;
         this.properties = properties;
         this.aiProperties = aiProperties;
@@ -85,9 +87,10 @@ public class DataInitializer implements ApplicationRunner {
     }
 
     @Override
-    public void run(ApplicationArguments args) {
+    public void run(ApplicationArguments args) throws java.sql.SQLException {
         if (properties.isSyncSchema()) {
             SchemaSync.Report report = sql.synchronizeSchema(registry.all().toArray(new Class<?>[0]));
+            constraints.synchronize();
             LOG.info("[ims] 表结构同步完成，是否有变更：{}", report.changed());
             if (report.changed()) {
                 LOG.info("[ims] 执行的 DDL：{}", report.executed());
@@ -325,6 +328,7 @@ public class DataInitializer implements ApplicationRunner {
         ticket.createBy = creator == null ? null : creator.id;
         ticket.createdAt = LocalDateTime.now().minusDays(++sequence % 20);
         ticket.updatedAt = LocalDateTime.now();
+        ticket.dueDate = ticket.createdAt.toLocalDate().plusDays(7);
         insert(ticket);
     }
 
