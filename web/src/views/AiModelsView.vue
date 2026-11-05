@@ -213,7 +213,7 @@ onMounted(load)
           <label>最低角色等级
             <select v-model.number="draft.minLevel" class="input" aria-label="最低角色等级">
               <option :value="0">0 · 所有拥有 AI 使用权限的账号</option>
-              <option :value="1">1 · 普通员工</option><option :value="2">2 · 部门主管</option>
+              <option :value="1">1 · 普通账号</option><option :value="2">2 · 指导教师</option>
               <option :value="3">3 · 管理员</option><option :value="4">4 · 超级管理员</option>
             </select>
           </label>
@@ -221,21 +221,11 @@ onMounted(load)
             <select v-model="draft.keyAccess.mode" class="input" aria-label="密钥使用范围" aria-describedby="key-access-help">
               <option v-for="(label, mode) in scopeModes" :key="mode" :value="mode">{{ label }}</option>
             </select>
-            <span id="key-access-help" class="muted small">部门和员工账号任一匹配即命中名单。最低角色等级仍需满足。</span>
+            <span id="key-access-help" class="muted small">按账号授权；最低角色等级仍需满足。</span>
           </label>
           <div v-if="draft.keyAccess.mode !== 'ALL'" class="access-options">
             <div class="access-group">
-              <label>部门（已选 {{ draft.keyAccess.departmentIds.length }}）
-                <input v-model="departmentQuery" class="input" type="search" placeholder="搜索部门" />
-              </label>
-              <div class="access-list">
-                <label v-for="item in visibleOptions(options.departments, draft.keyAccess.departmentIds, departmentQuery)" :key="item.id">
-                  <input v-model="draft.keyAccess.departmentIds" :value="item.id" type="checkbox" />{{ item.label }}
-                </label>
-              </div>
-            </div>
-            <div class="access-group">
-              <label>员工账号（已选 {{ draft.keyAccess.userIds.length }}）
+              <label>账号（已选 {{ draft.keyAccess.userIds.length }}）
                 <input v-model="userQuery" class="input" type="search" placeholder="按姓名或账号搜索" />
               </label>
               <div class="access-list">

@@ -59,6 +59,11 @@ final class AiSkillSchema {
         }
         for (Class<?> model : registry.all()) {
             String table = sql.tableName(model);
+            // 只逐列展开业务表（th_）。系统表（用户、角色、审计、AI 配置…）在上面的总表里
+            // 有名字就够了——把它们的列也铺开会让 Skill 体积翻倍，直接顶爆上下文预算。
+            if (!key(table).startsWith("th_")) {
+                continue;
+            }
             var comments = columnComments.getOrDefault(key(table), Map.of());
             var fields = ModelMeta.of(model).columnFields();
             result.append("\n### ").append(cell(table)).append("\n\n")

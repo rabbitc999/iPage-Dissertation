@@ -53,16 +53,6 @@ public class User {
     @ValidatorLength(max = 32, message = "姓名最长 32 个字符")
     public String name;
 
-    /** 部门外键。 */
-    @ModelField(column = "dept_id", type = FieldType.ASSOCIATION_ID, byModel = Department.class,
-            text = "部门", order = 5)
-    public String deptId;
-
-    /** 部门对象。 */
-    @ModelField(column = "dept_id", type = FieldType.ASSOCIATION_MODEL, byModel = Department.class,
-            text = "部门", order = 6)
-    public Department dept;
-
     /** 手机号。 */
     @ModelField(column = "phone", text = "手机号", order = 7)
     public String phone;

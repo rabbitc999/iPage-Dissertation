@@ -42,7 +42,7 @@ public class SettingController {
     private static final Map<String, String> DEFINED_KEYS = new LinkedHashMap<>();
 
     static {
-        DEFINED_KEYS.put("siteName", "iPage 管理系统");
+        DEFINED_KEYS.put("siteName", "毕业论文管理系统");
         DEFINED_KEYS.put("logoUrl", "");
         DEFINED_KEYS.put("loginImageUrl", "");
     }

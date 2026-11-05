@@ -58,9 +58,9 @@ async function clearAvatar() {
 function levelText(level) {
   if (level >= 4) return '超级管理员'
   if (level === 3) return '管理员'
-  if (level === 2) return '部门主管'
-  if (level === 1) return '普通员工'
-  return '受限账号'
+  if (level === 2) return '指导教师'
+  if (level === 1) return '普通账号'
+  return '学生'
 }
 
 async function submit() {

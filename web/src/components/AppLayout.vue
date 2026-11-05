@@ -35,9 +35,9 @@ const levelText = computed(() => {
   const level = auth.user?.level ?? 0
   if (level >= 4) return '超级管理员'
   if (level === 3) return '管理员'
-  if (level === 2) return '部门主管'
-  if (level === 1) return '普通员工'
-  return '受限账号'
+  if (level === 2) return '指导教师'
+  if (level === 1) return '普通账号'
+  return '学生'
 })
 
 const scopeText = computed(() => {
@@ -52,7 +52,7 @@ const title = computed(() => {
     const item = nav.value.find((entry) => `m/${entry.key}` === route.path.replace(/^\//, ''))
     return item?.name || '数据'
   }
-  return route.meta.title || '信息管理系统'
+  return route.meta.title || '毕业论文管理系统'
 })
 
 async function loadNav() {
@@ -113,10 +113,10 @@ onUnmounted(() => {
     <aside class="sidebar" :class="{ open }">
       <div class="brand">
         <img v-if="brand.logoUrl" :src="brand.logoUrl" class="logo logo-img" alt="logo" />
-        <div v-else class="logo">I</div>
+        <div v-else class="logo">论</div>
         <div>
           <div class="brand-name">{{ brand.siteName }}</div>
-          <div class="brand-sub">ipage · Spring Boot · Vue</div>
+          <div class="brand-sub">选题 · 答辩 · 成绩</div>
         </div>
       </div>
 

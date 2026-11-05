@@ -59,7 +59,7 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta.title ? `${to.meta.title} · 信息管理系统` : '信息管理系统'
+  document.title = to.meta.title ? `${to.meta.title} · 毕业论文管理系统` : '毕业论文管理系统'
 })
 
 export default router

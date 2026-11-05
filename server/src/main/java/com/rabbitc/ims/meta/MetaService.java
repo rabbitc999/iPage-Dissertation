@@ -107,9 +107,19 @@ public class MetaService {
         schema.put("table", meta.table());
         schema.put("icon", meta.icon());
         schema.put("group", ModelRegistry.groupOf(modelClass));
-        schema.put("supportsAttachments", "ticket".equals(key) || "asset".equals(key));
+        schema.put("supportsAttachments", "asset".equals(key));
         schema.put("idField", meta.idField().name());
-        schema.put("permissions", Map.of("view", view, "create", edit, "edit", edit, "delete", delete));
+        // 论文域（th_ 前缀）的导入/导出另受权限点控制，前端据此隐藏按钮；
+        // 系统表保持原样，避免升级后管理员突然找不到导出入口。
+        boolean thesis = meta.table().startsWith("th_");
+        Map<String, Object> permissions = new LinkedHashMap<>();
+        permissions.put("view", view);
+        permissions.put("create", edit);
+        permissions.put("edit", edit);
+        permissions.put("delete", delete);
+        permissions.put("export", !thesis || user.has("thesis:data:export"));
+        permissions.put("import", !thesis || user.has("thesis:data:import"));
+        schema.put("permissions", permissions);
 
         Set<String> associationColumns = new LinkedHashSet<>();
         for (FieldDescriptor field : meta.fields()) {

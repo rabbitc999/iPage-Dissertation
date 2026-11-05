@@ -149,7 +149,7 @@ public class AuthService {
         }
         int version = user.tokenVersion == null ? 0 : user.tokenVersion;
         return new LoginUser(user.id, user.username, user.name, user.avatar, level, codes, scope,
-                user.deptId, version);
+                version);
     }
 
     /**

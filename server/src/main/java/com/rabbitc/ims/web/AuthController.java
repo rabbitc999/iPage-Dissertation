@@ -114,7 +114,6 @@ public class AuthController {
         view.put("avatar", user.avatar());
         view.put("level", user.level());
         view.put("dataScope", user.dataScope().name());
-        view.put("deptId", user.deptId());
         view.put("isAdmin", user.isAdmin());
         List<String> permissions = user.permissions().stream().sorted().toList();
         view.put("permissions", permissions);

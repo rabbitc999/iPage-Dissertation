@@ -80,7 +80,10 @@ public class DataInitializer implements ApplicationRunner {
         long users = sql.count(Query.of(User.class));
         if (users > 0) {
             // 已有库只补权限定义，不自动改变角色授权。
-            sql.transaction(tx -> ensureAuditPermissions(tx));
+            sql.transaction(tx -> {
+                ensureAuditPermissions(tx);
+                grantThesisDefaults(tx, ensureThesisPermissions(tx));
+            });
             LOG.info("[ims] 已存在 {} 个用户，跳过初始账号创建", users);
             return;
         }
@@ -110,9 +113,36 @@ public class DataInitializer implements ApplicationRunner {
         map.put("system:role:manage", permission(tx, "system:role:manage", "角色与权限", "系统管理", 2));
         map.putAll(ensureAuditPermissions(tx));
         map.put("system:setting:manage", permission(tx, "system:setting:manage", "系统图像设置", "系统管理", 4));
+        map.putAll(ensureThesisPermissions(tx));
         map.put("ai:use", permission(tx, "ai:use", "使用 AI 助手", "智能助手", 1));
         map.put("ai:manage", permission(tx, "ai:manage", "管理 MCP 与 Skill", "智能助手", 2));
         return map;
+    }
+
+    /**
+     * 论文业务的权限点：与模型等级互补。
+     * <p>
+     * 模型等级（{@code @ModelClass}）只能表达「谁能读写这张表」，
+     * 但「导出全库数据」「批量导入」「改成绩」「审核状态」是同一等级内部还要再分的开关，
+     * 所以做成独立权限点，在对应操作上校验。
+     */
+    private Map<String, Permission> ensureThesisPermissions(ModelSession tx) {
+        Map<String, Permission> permissions = new LinkedHashMap<>();
+        permissions.put("thesis:data:export",
+                permissionIfAbsent(tx, "thesis:data:export", "导出业务数据", "业务数据", 1));
+        permissions.put("thesis:data:import",
+                permissionIfAbsent(tx, "thesis:data:import", "批量导入业务数据", "业务数据", 2));
+        permissions.put("thesis:score:manage",
+                permissionIfAbsent(tx, "thesis:score:manage", "录入与修改成绩", "业务数据", 3));
+        permissions.put("thesis:paper:review",
+                permissionIfAbsent(tx, "thesis:paper:review", "审核论文状态", "业务数据", 4));
+        return permissions;
+    }
+
+    /** 取权限点，不存在就建；已存在时保留原记录，不覆盖管理员改过的名称与排序。 */
+    private Permission permissionIfAbsent(ModelSession tx, String code, String name, String group, int sort) {
+        return tx.<Permission>selectOne(Query.of(Permission.class).where("code", code))
+                .orElseGet(() -> permission(tx, code, name, group, sort));
     }
 
     /** 新旧数据库都补齐日志权限；重复启动不重复插入，也不恢复已撤销的授权。 */
@@ -151,17 +181,55 @@ public class DataInitializer implements ApplicationRunner {
     private Map<String, Role> seedRoles(ModelSession tx, Map<String, Permission> permissions) {
         Map<String, Role> roles = new LinkedHashMap<>();
         roles.put("SUPER_ADMIN", role(tx, "SUPER_ADMIN", "超级管理员", 4, DataScope.ALL, "拥有全部权限"));
-        roles.put("ADMIN", role(tx, "ADMIN", "系统管理员", 3, DataScope.ALL, "管理用户、角色与数据"));
-        roles.put("MANAGER", role(tx, "MANAGER", "部门主管", 2, DataScope.DEPT, "只能看到本部门数据"));
-        roles.put("STAFF", role(tx, "STAFF", "普通员工", 1, DataScope.SELF, "只能看到自己创建的数据"));
+        roles.put("ADMIN", role(tx, "ADMIN", "教务管理员", 3, DataScope.ALL, "维护论文数据、用户与系统配置"));
+        roles.put("TEACHER", role(tx, "TEACHER", "指导教师", 2, DataScope.ALL, "查看与维护论文和成绩；账号与学生绑定后再收窄到所带学生"));
+        roles.put("STUDENT", role(tx, "STUDENT", "学生", 0, DataScope.SELF, "只读为主，仅能看到本人创建的记录"));
 
         grant(tx, roles.get("SUPER_ADMIN"), permissions.values());
         grant(tx, roles.get("ADMIN"), permissions.entrySet().stream()
                 .filter(entry -> !"system:audit:delete".equals(entry.getKey()))
                 .map(Map.Entry::getValue).toList());
-        grant(tx, roles.get("MANAGER"), List.of(permissions.get("ai:use")));
-        grant(tx, roles.get("STAFF"), List.of(permissions.get("ai:use")));
+        grant(tx, roles.get("TEACHER"), List.of(permissions.get("ai:use"),
+                permissions.get("thesis:score:manage")));
+        grant(tx, roles.get("STUDENT"), List.of(permissions.get("ai:use")));
         return roles;
+    }
+
+    /**
+     * 升级已有库时把新增的业务权限点补给内置角色。
+     * <p>
+     * 只补「缺失」的授权，不覆盖管理员已经调整过的矩阵：某个角色被手动去掉的权限不会被重新加回来，
+     * 但从未授予过的权限（升级前根本不存在）会给上，避免升级后管理员突然用不了导出/导入。
+     */
+    private void grantThesisDefaults(ModelSession tx, Map<String, Permission> permissions) {
+        Map<String, List<String>> defaults = new LinkedHashMap<>();
+        List<String> all = List.of("thesis:data:export", "thesis:data:import",
+                "thesis:score:manage", "thesis:paper:review");
+        defaults.put("SUPER_ADMIN", all);
+        defaults.put("ADMIN", all);
+        defaults.put("TEACHER", List.of("thesis:score:manage"));
+        for (Map.Entry<String, List<String>> entry : defaults.entrySet()) {
+            Role role = tx.<Role>selectOne(Query.of(Role.class).where("code", entry.getKey())).orElse(null);
+            if (role == null) {
+                continue;
+            }
+            for (String code : entry.getValue()) {
+                Permission permission = permissions.get(code);
+                if (permission == null) {
+                    continue;
+                }
+                long exists = tx.count(Query.of(RolePermission.class)
+                        .where("roleId", role.id)
+                        .where("permissionId", permission.id));
+                if (exists > 0) {
+                    continue;
+                }
+                RolePermission link = new RolePermission();
+                link.roleId = role.id;
+                link.permissionId = permission.id;
+                insert(tx, link);
+            }
+        }
     }
 
     private Role role(ModelSession tx, String code, String name, int level, DataScope scope, String remark) {

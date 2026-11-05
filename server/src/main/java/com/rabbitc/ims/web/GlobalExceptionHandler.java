@@ -88,8 +88,7 @@ public class GlobalExceptionHandler {
             if ("23503".equals(state) || "23506".equals(state)
                     || cause.getErrorCode() == 1451 || cause.getErrorCode() == 1452) {
                 String detail = cause.getMessage().toLowerCase(java.util.Locale.ROOT);
-                String record = detail.contains("fk_ims_ticket") ? "工单"
-                        : detail.contains("fk_ims_asset") ? "资产"
+                String record = detail.contains("fk_ims_asset") ? "资产"
                         : detail.contains("fk_ims_employee") ? "员工"
                         : detail.contains("fk_ims_user") ? "用户" : "关联记录";
                 return body(HttpStatus.CONFLICT, "无法保存或删除：" + record + "的关联关系仍在使用或已失效");
@@ -113,6 +112,42 @@ public class GlobalExceptionHandler {
             org.springframework.web.servlet.resource.NoResourceFoundException e) {
         LOG.debug("[ims] 静态资源不存在：{}", e.getResourcePath());
         return body(HttpStatus.NOT_FOUND, "资源不存在");
+    }
+
+    /**
+     * 上传请求缺文件（例如导入时没带 file 部分）或文件过大。
+     * <p>
+     * 这两种都属于「客户端请求不对」，按 400 / 413 回比兜底的 500 更准确，
+     * 前端也能直接把提示展示给用户。
+     *
+     * @param e 异常
+     * @return 400 或 413
+     */
+    @ExceptionHandler({
+            org.springframework.web.multipart.MaxUploadSizeExceededException.class,
+            org.springframework.web.multipart.MultipartException.class,
+            org.springframework.web.multipart.support.MissingServletRequestPartException.class})
+    public ResponseEntity<Map<String, Object>> handleMultipart(Exception e) {
+        if (e instanceof org.springframework.web.multipart.MaxUploadSizeExceededException) {
+            return body(HttpStatus.PAYLOAD_TOO_LARGE, "文件超过上传大小限制");
+        }
+        LOG.debug("[ims] 上传请求无效：{}", e.getMessage());
+        return body(HttpStatus.BAD_REQUEST, "上传请求无效，请选择要导入的文件");
+    }
+
+    /**
+     * 请求体格式不对（例如导入接口收到 JSON 而不是 multipart）。
+     * <p>
+     * 这是客户端调用方式的问题，回 415 比兜底的 500 更能说明原因。
+     *
+     * @param e 异常
+     * @return 415
+     */
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMediaType(
+            org.springframework.web.HttpMediaTypeNotSupportedException e) {
+        LOG.debug("[ims] 不支持的请求格式：{}", e.getContentType());
+        return body(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "请求格式不受支持，导入请使用 multipart/form-data 上传文件");
     }
 
     /**

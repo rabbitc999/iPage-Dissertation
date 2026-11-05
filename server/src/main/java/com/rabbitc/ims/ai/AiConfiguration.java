@@ -3,7 +3,6 @@ package com.rabbitc.ims.ai;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.rabbitc.ims.event.AiConfigChangedEvent;
-import com.rabbitc.ims.model.Department;
 import com.rabbitc.ims.model.User;
 import com.rabbitc.ims.enums.RecordStatus;
 import com.rabbitc.ims.enums.ToolAccess;
@@ -82,13 +81,13 @@ public class AiConfiguration {
 
     public record KeyAccess(AccessMode mode, Set<String> departmentIds, Set<String> userIds) {
         public KeyAccess {
+            // departmentIds 仅为兼容历史配置保留：部门模型已随演示业务移除，现在只能按账号授权
             departmentIds = departmentIds == null ? Set.of() : departmentIds;
             userIds = userIds == null ? Set.of() : userIds;
         }
 
         boolean permits(LoginUser user) {
-            boolean selected = userIds.contains(user.id())
-                    || (user.deptId() != null && departmentIds.contains(user.deptId()));
+            boolean selected = userIds.contains(user.id());
             return mode == AccessMode.ALL || (mode == AccessMode.ALLOW && selected)
                     || (mode == AccessMode.DENY && !selected);
         }
@@ -131,30 +130,24 @@ public class AiConfiguration {
         }
     }
 
-    /** 员工授权使用登录用户的 ID。员工档案与登录账号在当前系统中独立。 */
+    /** 密钥可以授权给哪些账号。部门维度随部门模型一起移除，这里只返回用户。 */
     public Map<String, Object> accessOptions() {
-        var departments = sql.selectList(Query.of(Department.class)).stream()
-                .sorted(Comparator.comparing(Department::toString))
-                .map(dept -> Map.of("id", dept.id, "label", dept.name + "（" + dept.code + "）")).toList();
         var users = sql.selectList(Query.of(User.class).where("status", RecordStatus.ENABLED)).stream()
                 .sorted(Comparator.comparing(user -> user.username))
                 .map(user -> Map.of("id", user.id, "label", user.name + "（" + user.username + "）")).toList();
-        return Map.of("departments", departments, "users", users);
+        return Map.of("users", users);
     }
 
     private byte[] validateAccess(KeyAccess access) {
         if (access.mode() == null) throw ApiException.badRequest("请选择密钥使用范围");
         if (access.mode() == AccessMode.ALL) return null;
-        var departments = access.departmentIds();
         var users = access.userIds();
-        int size = departments.size() + users.size();
-        if (size == 0 || size > 2000) throw ApiException.badRequest("请选择 1–2000 个部门或员工账号");
-        if (departments.stream().anyMatch(Objects::isNull) || users.stream().anyMatch(Objects::isNull)) {
+        if (users.isEmpty() || users.size() > 2000) throw ApiException.badRequest("请选择 1–2000 个账号");
+        if (users.stream().anyMatch(Objects::isNull)) {
             throw ApiException.badRequest("授权对象无效");
         }
-        if ((!departments.isEmpty() && sql.count(Query.of(Department.class).in("id", departments)) != departments.size())
-                || (!users.isEmpty() && sql.count(Query.of(User.class).in("id", users)) != users.size())) {
-            throw ApiException.badRequest("所选部门或员工账号已不存在，请重新选择");
+        if (sql.count(Query.of(User.class).in("id", users)) != users.size()) {
+            throw ApiException.badRequest("所选账号已不存在，请重新选择");
         }
         return JSON.toJson(access).getBytes(StandardCharsets.UTF_8);
     }

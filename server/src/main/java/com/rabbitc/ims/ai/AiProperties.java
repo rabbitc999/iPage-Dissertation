@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AiProperties {
     private boolean available = true;
     private int maxTokens = 2048;
-    private int contextBudget = 16000;
+    /** 单次请求的上下文上限（tokens）；默认按 300K 窗口的大模型设置，模型更小请调低。 */
+    private int contextBudget = 300000;
     private String workDir = "./data/ai";
 
     public boolean isAvailable() {

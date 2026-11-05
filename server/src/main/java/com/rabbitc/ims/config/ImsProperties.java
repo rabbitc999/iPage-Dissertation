@@ -24,6 +24,15 @@ public class ImsProperties {
     private boolean syncSchema = true;
 
     /**
+     * 论文域演示数据是否在空库时自动导入。
+     * <p>
+     * 默认关闭：正式环境的数据来自迁移脚本，不该被内置数据污染。
+     * 纯 H2 演练（{@code --spring.profiles.active=h2}）会打开它，
+     * 这样不装数据库也能直接看到有内容的列表。
+     */
+    private boolean seedThesis = false;
+
+    /**
      * 签名密钥。
      *
      * @return 密钥
@@ -93,5 +102,23 @@ public class ImsProperties {
      */
     public void setSyncSchema(boolean syncSchema) {
         this.syncSchema = syncSchema;
+    }
+
+    /**
+     * 是否在空库时导入论文域演示数据。
+     *
+     * @return 需要返回 {@code true}
+     */
+    public boolean isSeedThesis() {
+        return seedThesis;
+    }
+
+    /**
+     * 设置是否导入论文域演示数据。
+     *
+     * @param seedThesis 是否需要
+     */
+    public void setSeedThesis(boolean seedThesis) {
+        this.seedThesis = seedThesis;
     }
 }

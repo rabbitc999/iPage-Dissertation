@@ -42,7 +42,7 @@ class AuditLogPermissionsTest {
     }
 
     private LoginUser user(int level, String... permissions) {
-        return new LoginUser("u", "test", "test", null, level, Set.of(permissions), DataScope.ALL, null, 0);
+        return new LoginUser("u", "test", "test", null, level, Set.of(permissions), DataScope.ALL, 0);
     }
 
     private AuditLog log() throws Exception {

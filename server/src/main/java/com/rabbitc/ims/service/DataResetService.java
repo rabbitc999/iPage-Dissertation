@@ -5,18 +5,22 @@ import com.rabbitc.ims.meta.ModelRegistry;
 import com.rabbitc.ims.model.AiMcpServer;
 import com.rabbitc.ims.model.AiModel;
 import com.rabbitc.ims.model.AiSkill;
-import com.rabbitc.ims.model.Asset;
 import com.rabbitc.ims.model.AuditLog;
-import com.rabbitc.ims.model.BusinessEvent;
-import com.rabbitc.ims.model.Department;
-import com.rabbitc.ims.model.Employee;
+import com.rabbitc.ims.model.College;
+import com.rabbitc.ims.model.Direction;
+import com.rabbitc.ims.model.Paper;
+import com.rabbitc.ims.model.PaperScore;
 import com.rabbitc.ims.model.Permission;
+import com.rabbitc.ims.model.Profession;
 import com.rabbitc.ims.model.Role;
-import com.rabbitc.ims.model.RecordAttachment;
 import com.rabbitc.ims.model.RolePermission;
+import com.rabbitc.ims.model.SchoolClass;
+import com.rabbitc.ims.model.Student;
+import com.rabbitc.ims.model.Teacher;
+import com.rabbitc.ims.model.TeacherDirection;
+import com.rabbitc.ims.model.TeacherProfession;
 import com.rabbitc.ims.model.SysFile;
 import com.rabbitc.ims.model.SysSetting;
-import com.rabbitc.ims.model.Ticket;
 import com.rabbitc.ims.model.User;
 import com.rabbitc.ims.model.UserRole;
 import com.rabbitc.ims.model.ViewConfig;
@@ -51,10 +55,19 @@ public class DataResetService {
     private static final Logger LOG = LoggerFactory.getLogger(DataResetService.class);
     private static final String CONFIRMATION = "清空所有数据";
     private static final int EXPIRES_SECONDS = 120;
+    /**
+     * 清空顺序：先子表后父表，必须覆盖 {@code ModelRegistry.all()} 里的每一个模型，
+     * 否则 {@link #reset} 会判为「模型与清空顺序不匹配」并中止。
+     */
     private static final List<Class<?>> DELETE_ORDER = List.of(
-            RecordAttachment.class, BusinessEvent.class, Ticket.class, Asset.class, Employee.class, ViewConfig.class,
+            // 论文域：成绩 → 论文 → 关联 → 学生/教师 → 班级 → 专业 → 院系 → 方向
+            PaperScore.class, Paper.class, TeacherDirection.class, TeacherProfession.class,
+            Student.class, Teacher.class, SchoolClass.class, Profession.class, College.class,
+            Direction.class,
+            // 平台
+            ViewConfig.class,
             AiModel.class, AiMcpServer.class, AiSkill.class, SysFile.class, SysSetting.class,
-            AuditLog.class, UserRole.class, RolePermission.class, User.class, Department.class,
+            AuditLog.class, UserRole.class, RolePermission.class, User.class,
             Permission.class, Role.class);
 
     public record Confirmation(String token, int expiresInSeconds) {}
@@ -124,7 +137,6 @@ public class DataResetService {
             int[] deleted = {0};
             sql.transaction(tx -> {
                 User account = account(current.id());
-                account.deptId = null;
                 account.avatar = null;
                 account.phone = null;
                 account.email = null;

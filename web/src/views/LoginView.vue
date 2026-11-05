@@ -45,18 +45,18 @@ onMounted(() => {
     <section class="brand-side">
       <div class="brand-inner">
         <img v-if="brand.logoUrl" :src="brand.logoUrl" class="mark mark-img" alt="logo" />
-        <div v-else class="mark">I</div>
+        <div v-else class="mark">论</div>
         <h1>{{ brand.siteName }}</h1>
         <img v-if="brand.loginImageUrl" :src="brand.loginImageUrl" class="login-image" alt="品牌图" />
         <p class="lead">
-          注解即表结构，模型即页面。<br />
-          一套模型定义，自动长出建表、CRUD、权限与审计。
+          从选题、答辩到成绩归档，一套系统管到底。<br />
+          院系、专业、班级、学生、教师与论文的关系自动维护。
         </p>
         <ul class="points">
-          <li><b>ipage</b> 负责 SQL 与表结构，不写 Mapper</li>
-          <li><b>RBAC</b> 角色等级 + 权限点 + 数据范围</li>
-          <li><b>Vue</b> 按服务端 schema 渲染表格与表单</li>
-          <li><b>AI</b> MCP 与 Skill 动态装配，工具受同一套权限约束</li>
+          <li><b>选题</b> 一名学生一篇论文，状态与题目联动校验</li>
+          <li><b>成绩</b> 答辩、论文分项录入，总成绩按权重自动合成</li>
+          <li><b>权限</b> 角色等级 + 权限点 + 数据范围三层控制</li>
+          <li><b>AI</b> 用自然语言查询与维护数据，受同一套权限约束</li>
         </ul>
       </div>
     </section>

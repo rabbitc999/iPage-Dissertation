@@ -38,9 +38,9 @@ const scopeLabels = { ALL: '全部数据', DEPT: '本部门', SELF: '仅本人' 
 function levelLabel(level) {
   if (level >= 4) return '超级管理员'
   if (level === 3) return '管理员'
-  if (level === 2) return '主管'
-  if (level === 1) return '员工'
-  return '受限'
+  if (level === 2) return '指导教师'
+  if (level === 1) return '普通账号'
+  return '学生'
 }
 
 async function loadRoles() {
@@ -228,9 +228,9 @@ onMounted(async () => {
           <div class="field">
             <label>等级</label>
             <select v-model.number="form.level" class="select">
-              <option :value="0">0 · 受限</option>
-              <option :value="1">1 · 员工</option>
-              <option :value="2">2 · 主管</option>
+              <option :value="0">0 · 学生（只读）</option>
+              <option :value="1">1 · 普通账号</option>
+              <option :value="2">2 · 指导教师</option>
               <option :value="3">3 · 管理员</option>
               <option :value="4">4 · 超级管理员</option>
             </select>

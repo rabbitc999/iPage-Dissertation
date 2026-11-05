@@ -21,7 +21,7 @@ class AiToolGuardTest {
     private final AiToolGuard guard = new AiToolGuard(auth, config);
 
     private LoginUser user(String id, int level, DataScope scope, int version) {
-        return new LoginUser(id, id, id, null, level, Set.of("ai:use"), scope, "dept", version);
+        return new LoginUser(id, id, id, null, level, Set.of("ai:use"), scope, version);
     }
 
     @AfterEach void clear() { UserContext.clear(); }

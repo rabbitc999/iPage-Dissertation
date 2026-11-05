@@ -113,7 +113,7 @@ onMounted(load)
       <form v-else class="form" @submit.prevent="save">
         <div class="field">
           <label>站点名</label>
-          <input v-model="form.siteName" class="input" maxlength="60" placeholder="例如：信息管理系统" />
+          <input v-model="form.siteName" class="input" maxlength="60" placeholder="例如：毕业论文管理系统" />
         </div>
 
         <div class="field image-row">

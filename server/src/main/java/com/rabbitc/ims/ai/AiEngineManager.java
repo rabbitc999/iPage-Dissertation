@@ -17,7 +17,7 @@ import com.rabbitc.ims.model.AiModel;
 import com.rabbitc.ims.model.AiSkill;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.service.CrudService;
-import com.rabbitc.ims.service.RecordAttachmentService;
+import com.rabbitc.ims.service.CrudService;
 import com.rabbitc.ims.web.ApiException;
 import com.rabbitc.ims.web.FileController;
 import com.rabbitc.ims.web.ProfileController;
@@ -80,7 +80,6 @@ public class AiEngineManager {
     private final AiConversations conversations;
 
     private final FileController files;
-    private final RecordAttachmentService recordAttachments;
     private final ProfileController profiles;
     private record Run(String id, AtomicBoolean cancelled) {}
 
@@ -100,14 +99,13 @@ public class AiEngineManager {
      */
     public AiEngineManager(AiProperties props, CrudService crud, MetaService metaService, ModelSession sql,
                            FileController files, ProfileController profiles, AiConfiguration configuration,
-                           RecordAttachmentService recordAttachments, ModelRegistry registry, DataSource dataSource,
+                           ModelRegistry registry, DataSource dataSource,
                            AiToolGuard toolGuard) {
         this.toolGuard = toolGuard;
         this.dataSource = dataSource;
         this.registry = registry;
         this.props = props;
         this.conversations = new AiConversations(workDir().resolve("conversations"));
-        this.recordAttachments = recordAttachments;
         this.configuration = configuration;
         this.crud = crud;
         this.metaService = metaService;
@@ -155,6 +153,8 @@ public class AiEngineManager {
         body.put("ready", first != null);
         body.put("provider", first == null ? "" : first.provider);
         body.put("model", first == null ? "" : first.modelId);
+        // 暴露预算，排查「Context budget exceeded」时不用翻配置
+        body.put("contextBudget", props.getContextBudget());
         body.put("hasKey", first != null);
         body.put("allowTools", first != null && first.allowTools);
         if (first == null) {
@@ -396,17 +396,12 @@ public class AiEngineManager {
         } else if ("tool".equals(type)) {
             JsonObject audit = event.getAsJsonObject("audit");
             String name = audit.get("name").getAsString();
-            if (!Set.of("ims_attach_record_file", "ims_upload_text_file").contains(name)) return;
+            if (!Set.of("ims_upload_text_file").contains(name)) return;
             JsonObject outcome = audit.getAsJsonObject("result");
             JsonElement result = outcome.get("result");
             if (!outcome.get("ok").getAsBoolean() || result == null || !result.isJsonObject()) return;
             JsonObject file = result.getAsJsonObject().deepCopy();
             if (!file.has("id")) return;
-            if ("ims_attach_record_file".equals(name)) {
-                file.addProperty("downloadPath", "/models/" + file.get("model").getAsString()
-                        + "/" + file.get("recordId").getAsString() + "/attachments/"
-                        + file.get("id").getAsString() + "/download");
-            }
             transcript.add(EmbedAiChat.object("role", "assistant", "attachments", EmbedAiChat.array(file)));
         } else if ("thinking".equals(type)) {
             JsonObject message = EmbedAiChat.object("role", "assistant", "thinking", event.get("text"));
@@ -637,21 +632,6 @@ public class AiEngineManager {
      * @param session 当前会话
      */
     private void registerTools(EmbedAiChat.Engine engine, Session session) {
-        registerHostTool(engine, new EmbedAiChat.Tool("ims_attach_record_file",
-                "Attach a file uploaded in this turn to an existing ticket or asset and optionally update its fields",
-                schema("""
-                {"type":"object","properties":{"model":{"type":"string","enum":["ticket","asset"]},
-                 "recordId":{"type":"string"},"fileId":{"type":"string"},"values":{"type":"object"}},
-                 "required":["model","recordId","fileId"],"additionalProperties":false}
-                """), args -> {
-            requireFileWrites(session);
-            String fileId = required(args, "fileId");
-            if (!session.attachments.containsKey(fileId)) throw ApiException.badRequest("请选择本轮上传的附件");
-            var values = args.has("values") ? valuesOf(args) : Map.<String, Object>of();
-            if (!values.isEmpty()) requireAccess(session, ToolAccess.ADD_EDIT);
-            return json(recordAttachments.attach(UserContext.require(), required(args, "model"),
-                    required(args, "recordId"), fileId, values));
-        }));
         registerHostTool(engine, new EmbedAiChat.Tool("ims_upload_text_file",
                 "Save a user-requested UTF-8 text file as a private attachment", schema("""
                 {"type":"object","properties":{"name":{"type":"string"},"text":{"type":"string"}},
@@ -809,7 +789,7 @@ public class AiEngineManager {
         return switch (name) {
             case "assistant_reply", "assistant_end", "skill_list", "skill_activate",
                  "ims_list_models", "ims_model_schema", "ims_query", "ims_get", "ims_stats" -> ToolAccess.READ_ONLY;
-            case "ims_create", "ims_upload_text_file", "ims_attach_record_file" -> ToolAccess.ADD;
+            case "ims_create", "ims_upload_text_file" -> ToolAccess.ADD;
             case "ims_update", "ims_update_my_avatar" -> ToolAccess.ADD_EDIT;
             default -> ToolAccess.FULL;
         };

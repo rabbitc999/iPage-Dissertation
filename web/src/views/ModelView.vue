@@ -8,12 +8,13 @@
  * 列显隐与每页条数按用户保存到 {@code /api/views/{key}}，换账号不串数据。
  */
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, upload } from '../api/http'
 import { toast, toastError } from '../api/toast'
 import DataForm from '../components/DataForm.vue'
 
 const route = useRoute()
+const router = useRouter()
 const key = computed(() => route.params.key)
 
 const schema = ref(null)
@@ -83,10 +84,15 @@ const dialog = reactive({ open: false, mode: 'create', row: null, submitting: fa
 const fields = computed(() => schema.value?.fields || [])
 const tableFields = computed(() => fields.value.filter((field) => field.table))
 const visibleFields = computed(() => tableFields.value.filter((field) => !hidden.value.includes(field.name)))
-const filterFields = computed(() => fields.value.filter((field) => field.type !== 'ASSOCIATION_MODEL' && field.type !== 'AGGREGATION'))
+// 主键是 UUID，用它做筛选没有业务意义；关联对象与聚合列不在表里，也不能当条件。
+const filterFields = computed(() => fields.value.filter((field) =>
+  field.type !== 'ASSOCIATION_MODEL' && field.type !== 'AGGREGATION' && field.type !== 'MODEL_ID'))
 const canCreate = computed(() => schema.value?.permissions?.create)
 const canEdit = computed(() => schema.value?.permissions?.edit)
 const canDelete = computed(() => schema.value?.permissions?.delete)
+/** 论文域另有「导出 / 导入」权限点，缺权限时直接不渲染按钮，别让用户点了才报 403。 */
+const canExport = computed(() => schema.value?.permissions?.export !== false)
+const canImport = computed(() => schema.value?.permissions?.import !== false)
 const allChecked = computed(() => rows.value.length > 0 && selected.value.length === rows.value.length)
 
 // ------------------------------------------------------------------ 查询参数
@@ -102,6 +108,16 @@ const allChecked = computed(() => rows.value.length > 0 && selected.value.length
 /** Transfers use the same authenticated API and filters as the list. */
 const transferFormat = ref('csv')
 const transferring = ref(false)
+/**
+ * 导出与「下载导入模板」共用的文件格式。
+ * <p>
+ * 只有两个取值，直接摊成两个按钮比裸 `<select>` 更清楚：
+ * 用户一眼能看出这个控件管的是「文件格式」，而不是某个按钮的附属品。
+ */
+const transferFormats = [
+  { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'Excel' }
+]
 
 async function downloadTable(template = false) {
   const model = key.value
@@ -144,11 +160,6 @@ async function importTable(event) {
 
 function params() {
   const result = { page: page.value, size: size.value }
-  if (key.value === 'ticket') {
-    for (const filter of ['from', 'to', 'department']) {
-      if (typeof route.query[filter] === 'string') result[filter] = route.query[filter]
-    }
-  }
   if (kw.value.trim()) result.kw = kw.value.trim()
   if (sort.value) {
     result.sort = sort.value
@@ -172,7 +183,7 @@ function params() {
  */
 async function loadSchema() {
   schema.value = await api(`/models/${key.value}/schema`)
-  document.title = `${schema.value.name} · 信息管理系统`
+  document.title = `${schema.value.name} · 毕业论文管理系统`
 }
 
 /**
@@ -207,6 +218,7 @@ async function loadRows() {
     total.value = result.total
     pages.value = result.pages
     page.value = result.page
+    syncQuery()
   } catch (e) {
     error.value = e.message
     rows.value = []
@@ -232,8 +244,44 @@ function resetSearch() {
   loadRows()
 }
 
+/** 按 Java 字段名取字段元数据；筛选行要靠它判断字段是不是外键。 */
+function fieldMeta(name) {
+  return fields.value.find((field) => field.name === name)
+}
+
+/**
+ * 外键列在库里存的是 UUID，用「包含 某某老师」永远匹配不到。
+ * 这类字段只能从下拉里选具体记录，操作符也只保留等值与空判断。
+ */
+function isAssociation(name) {
+  return fieldMeta(name)?.type === 'ASSOCIATION_ID'
+}
+
+/** 枚举列存的是常量名（DEFENDED），界面要显示中文标签，所以值也必须从下拉里选。 */
+function isEnum(name) {
+  return fieldMeta(name)?.type === 'ENUM'
+}
+
+/** 外键与枚举都只能选、不能手打，操作符也只用等值/空判断。 */
+function needsSelect(name) {
+  return isAssociation(name) || isEnum(name)
+}
+
+/** 切换筛选字段时，把操作符和值调整成该字段能用的形态。 */
+function onFilterFieldChange(filter) {
+  if (needsSelect(filter.field)) {
+    filter.op = 'EQ'
+  } else if (!['IS_NULL', 'IS_NOT_NULL'].includes(filter.op)) {
+    filter.op = 'LIKE'
+  }
+  filter.value = ''
+  search()
+}
+
 function addFilter() {
-  filters.value.push({ field: filterFields.value[0]?.name || '', op: 'LIKE', value: '' })
+  const first = filterFields.value[0]
+  const select = first && (first.type === 'ASSOCIATION_ID' || first.type === 'ENUM')
+  filters.value.push({ field: first?.name || '', op: select ? 'EQ' : 'LIKE', value: '' })
 }
 
 function removeFilter(index) {
@@ -388,21 +436,76 @@ async function saveColumns() {
 // ------------------------------------------------------------------ 启动
 
 /**
- * 首次进入：schema → 界面配置 → 数据，顺序不能换。
+ * 把当前查询状态写回地址栏（用 replace，不再新增历史记录）。
  * <p>
- * 后一步依赖前一步：没有 schema 就不知道哪些列在表格里，没有界面配置就不知道该隐藏谁。
+ * 这样「后退 / 前进」回到这个模型时，关键字、筛选、排序、页码都还在；
+ * 刷新页面或把链接发给别人也能看到同一份结果。
+ */
+function syncQuery() {
+  const query = {}
+  if (kw.value.trim()) query.kw = kw.value.trim()
+  if (sort.value) {
+    query.sort = sort.value
+    query.order = order.value
+  }
+  if (page.value > 1) query.page = String(page.value)
+  if (size.value !== 20) query.size = String(size.value)
+  for (const filter of filters.value) {
+    if (!filter.field || filter.value === '' || filter.value === null) continue
+    query[`f_${filter.field}`] = String(filter.value)
+    query[`op_${filter.field}`] = filter.op
+  }
+  if (!sameQuery(route.query, query)) {
+    router.replace({ path: route.path, query })
+  }
+}
+
+function sameQuery(current, next) {
+  const left = Object.entries(current).sort().map(([k, v]) => `${k}=${v}`).join('&')
+  const right = Object.entries(next).sort().map(([k, v]) => `${k}=${v}`).join('&')
+  return left === right
+}
+
+/**
+ * 从地址栏恢复查询状态（schema 加载完之后才能调用：要靠字段列表判断哪些 f_ 前缀有效）。
+ * <p>
+ * 只接受当前模型真实存在的字段，避免 URL 里的脏参数被当成查询条件。
+ */
+function restoreQuery() {
+  const query = route.query
+  if (typeof query.kw === 'string') kw.value = query.kw
+  if (typeof query.sort === 'string') sort.value = query.sort
+  if (typeof query.order === 'string') order.value = query.order
+  if (typeof query.page === 'string' && Number(query.page) > 0) page.value = Number(query.page)
+  if (typeof query.size === 'string' && Number(query.size) > 0) size.value = Number(query.size)
+  const restored = []
+  for (const field of filterFields.value) {
+    const value = query[`f_${field.name}`]
+    if (typeof value !== 'string' || value === '') continue
+    const op = query[`op_${field.name}`]
+    restored.push({ field: field.name, op: typeof op === 'string' ? op : 'EQ', value })
+  }
+  if (restored.length) filters.value = restored
+}
+
+/**
+ * 首次进入：schema → 界面配置 → 地址栏状态 → 数据，顺序不能换。
+ * <p>
+ * 后一步依赖前一步：没有 schema 就不知道哪些列在表格里，没有界面配置就不知道该隐藏谁，
+ * 没有字段列表就无法判断地址栏里哪些筛选参数是合法的。
  */
 async function bootstrap() {
   try {
     await loadSchema()
     await loadView()
+    restoreQuery()
     await loadRows()
   } catch (e) {
     error.value = e.message
   }
 }
 
-watch([key, () => route.query.from, () => route.query.to, () => route.query.department], () => {
+watch(key, () => {
   page.value = 1
   kw.value = ''
   filters.value = []
@@ -447,21 +550,31 @@ onUnmounted(() => clearTimeout(hideTimer))
       <div class="row wrap">
         <button class="btn" @click="openColumns">列设置</button>
         <button class="btn" :disabled="loading" @click="reload">刷新</button>
-        <select v-model="transferFormat" aria-label="文件格式" :disabled="transferring">
-          <option value="csv">CSV</option>
-          <option value="xlsx">Excel (.xlsx)</option>
-        </select>
-        <button class="btn" :disabled="transferring" @click="downloadTable()">导出</button>
-        <button v-if="canCreate" class="btn" :disabled="transferring" @click="downloadTable(true)">下载导入模板</button>
-        <button v-if="canCreate" class="btn" :disabled="transferring" @click="$refs.importFile.click()">导入</button>
-        <input v-if="canCreate" ref="importFile" type="file" accept=".csv,.xlsx" hidden @change="importTable" />
+        <div class="format-switch" role="group" aria-label="导出与导入模板格式"
+             title="导出与下载导入模板使用的文件格式">
+          <span class="format-label">格式</span>
+          <button
+            v-for="option in transferFormats"
+            :key="option.value"
+            type="button"
+            class="format-option"
+            :class="{ active: transferFormat === option.value }"
+            :aria-pressed="transferFormat === option.value"
+            :disabled="transferring"
+            @click="transferFormat = option.value"
+          >{{ option.label }}</button>
+        </div>
+        <button v-if="canExport" class="btn" :disabled="transferring" @click="downloadTable()">导出</button>
+        <button v-if="canExport && canCreate" class="btn" :disabled="transferring" @click="downloadTable(true)">下载导入模板</button>
+        <button v-if="canImport && canCreate" class="btn" :disabled="transferring" @click="$refs.importFile.click()">导入</button>
+        <input v-if="canImport && canCreate" ref="importFile" type="file" accept=".csv,.xlsx" hidden @change="importTable" />
         <button v-if="canCreate" class="btn primary" @click="openCreate">新增{{ schema.name }}</button>
       </div>
     </div>
 
     <div class="card toolbar">
       <div class="row wrap">
-        <input v-model="kw" class="input search" placeholder="关键字搜索（回车执行）" @keyup.enter="search" />
+        <input v-model="kw" class="input search" placeholder="关键字：名称 / 学号 / 状态 / 年份（回车执行）" @keyup.enter="search" />
         <button class="btn" @click="search">查询</button>
         <button class="btn ghost" @click="resetSearch">重置</button>
         <div class="grow"></div>
@@ -472,34 +585,52 @@ onUnmounted(() => clearTimeout(hideTimer))
       </div>
 
       <div v-for="(filter, index) in filters" :key="index" class="row wrap filter-row">
-        <select v-model="filter.field" class="select tiny" @change="search">
+        <select v-model="filter.field" class="select tiny" @change="onFilterFieldChange(filter)">
           <option v-for="field in filterFields" :key="field.name" :value="field.name">{{ field.text }}</option>
         </select>
         <select v-model="filter.op" class="select tiny" @change="search">
-          <option value="LIKE">包含</option>
-          <option value="EQ">等于</option>
-          <option value="NE">不等于</option>
-          <option value="GT">大于</option>
-          <option value="LT">小于</option>
-          <option value="GTE">不小于</option>
-          <option value="LTE">不大于</option>
-          <option value="IS_NULL">为空</option>
-          <option value="IS_NOT_NULL">不为空</option>
+          <template v-if="needsSelect(filter.field)">
+            <option value="EQ">等于</option>
+            <option value="NE">不等于</option>
+            <option value="IS_NULL">为空</option>
+            <option value="IS_NOT_NULL">不为空</option>
+          </template>
+          <template v-else>
+            <option value="LIKE">包含</option>
+            <option value="EQ">等于</option>
+            <option value="NE">不等于</option>
+            <option value="GT">大于</option>
+            <option value="LT">小于</option>
+            <option value="GTE">不小于</option>
+            <option value="LTE">不大于</option>
+            <option value="IS_NULL">为空</option>
+            <option value="IS_NOT_NULL">不为空</option>
+          </template>
         </select>
-        <input
-          v-if="filter.op !== 'IS_NULL' && filter.op !== 'IS_NOT_NULL'"
-          v-model="filter.value"
-          class="input tiny"
-          placeholder="值"
-          @keyup.enter="search"
-        />
+        <template v-if="filter.op !== 'IS_NULL' && filter.op !== 'IS_NOT_NULL'">
+          <select
+            v-if="needsSelect(filter.field)"
+            v-model="filter.value"
+            class="select tiny wide"
+            @change="search"
+          >
+            <option value="">全部</option>
+            <option
+              v-for="(label, code) in (fieldMeta(filter.field)?.options || {})"
+              :key="code"
+              :value="code"
+            >{{ label }}</option>
+          </select>
+          <input
+            v-else
+            v-model="filter.value"
+            class="input tiny"
+            placeholder="值"
+            @keyup.enter="search"
+          />
+        </template>
         <button class="btn ghost sm" @click="removeFilter(index)">移除</button>
       </div>
-    </div>
-
-    <div v-if="key === 'ticket' && (route.query.from || route.query.to || route.query.department)" class="row wrap">
-      <span class="muted small">已应用工作台的日期与部门筛选</span>
-      <router-link to="/m/ticket">清除报表筛选</router-link>
     </div>
 
     <div v-if="error" class="card error-card">{{ error }}</div>
@@ -636,6 +767,47 @@ onUnmounted(() => clearTimeout(hideTimer))
 .filter-row { margin-top: 10px; }
 .tiny { height: 30px; width: auto; min-width: 110px; }
 .select.tiny { min-width: 130px; }
+/* 外键筛选要放下「姓名（学号）」这类较长选项 */
+.select.tiny.wide { min-width: 220px; }
+
+/* 格式切换：与 34px 高的按钮同高，和「导出 / 下载导入模板」视觉上连成一组 */
+.format-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  user-select: none;
+}
+.format-label { margin-right: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.format-option {
+  height: 26px;
+  min-width: 56px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: 0.15s ease;
+  white-space: nowrap;
+}
+.format-option:hover:not(:disabled) { color: var(--text); }
+.format-option.active {
+  border-color: var(--border-strong);
+  background: var(--panel);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.format-option:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.format-option:disabled { opacity: 0.55; cursor: not-allowed; }
 .table-card { overflow: hidden; }
 .pager { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); }
 .error-card { padding: 18px; color: var(--danger); background: var(--danger-weak); border-color: transparent; }

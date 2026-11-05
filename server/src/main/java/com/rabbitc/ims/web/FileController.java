@@ -4,7 +4,6 @@ import com.rabbitc.ipage.exception.CheckerException;
 import com.rabbitc.ipage.jdbc.ModelSession;
 import com.rabbitc.ipage.sql.Query;
 import com.rabbitc.ims.model.SysFile;
-import com.rabbitc.ims.model.RecordAttachment;
 import com.rabbitc.ims.ai.AiConfiguration;
 import com.rabbitc.ims.security.LoginUser;
 import com.rabbitc.ims.security.UserContext;
@@ -186,9 +185,6 @@ public class FileController {
         SysFile record = require(id);
         if (!user.isAdmin() && !user.id().equals(record.createBy)) {
             throw ApiException.forbidden("只能删除自己上传的文件");
-        }
-        if (sql.count(Query.of(RecordAttachment.class).where("fileId", id)) > 0) {
-            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "请先解除该文件的业务记录关联");
         }
         sql.delete(record);
         audit.record(user, "删除", "文件", id, record.name);

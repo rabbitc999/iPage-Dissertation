@@ -36,7 +36,9 @@ if errorlevel 1 (
 popd
 
 echo [2/3] Packaging the server...
-call mvnw.cmd -pl server -am package -DskipTests
+rem clean 必须保留：Maven 只会往 target\classes 里覆盖，不会删掉上一版的前端哈希文件，
+rem 少了 clean 就会把旧 chunk 一起打进 jar，浏览器可能加载到上一版页面。
+call mvnw.cmd -pl server -am clean package -DskipTests
 if errorlevel 1 goto :failed
 
 rem Keep Maven's output unlocked while Java is running.

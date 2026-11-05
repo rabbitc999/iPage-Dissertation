@@ -1,102 +1,62 @@
 package com.rabbitc.ims.service;
 
-import com.rabbitc.ims.enums.DataScope;
-import com.rabbitc.ims.model.Asset;
-import com.rabbitc.ims.model.Department;
-import com.rabbitc.ims.model.Employee;
-import com.rabbitc.ims.model.Ticket;
-import com.rabbitc.ims.model.User;
-import com.rabbitc.ims.security.LoginUser;
-import com.rabbitc.ims.support.Ids;
-import com.rabbitc.ims.web.ApiException;
-import com.rabbitc.ipage.enums.SortType;
 import com.rabbitc.ipage.jdbc.ModelSession;
 import com.rabbitc.ipage.reflect.FieldDescriptor;
 import com.rabbitc.ipage.reflect.ModelMeta;
 import com.rabbitc.ipage.sql.Query;
+import com.rabbitc.ims.security.LoginUser;
+import com.rabbitc.ims.web.ApiException;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** 业务关联选项和保存校验共用同一个可选范围。 */
+/**
+ * 关联字段的选项与保存校验。
+ * <p>
+ * 演示业务模型（部门 / 员工 / 资产 / 工单）移除后，不再有「按数据范围裁剪下拉候选」的模型：
+ * 剩余的论文域关联表在业务上都是公开可选的，因此选项直接取关联表全量。
+ * 保存时仍校验目标主键存在，避免把一个已删除的 id 写进外键列。
+ *
+ * @author 小兔糖糖OvO
+ * @since 1.0
+ */
 @Component
 public class AssociationAccess {
+
     private final ModelSession sql;
 
     public AssociationAccess(ModelSession sql) {
         this.sql = sql;
     }
 
+    /**
+     * 关联字段的下拉选项。
+     *
+     * @param user  当前用户
+     * @param owner 拥有该字段的模型
+     * @param field 关联字段
+     * @return 主键到显示文本的映射
+     */
     public Map<String, String> options(LoginUser user, Class<?> owner, FieldDescriptor field) {
-        Class<?> target = field.relatedClass();
-        if (!controlled(owner) || unrestricted(user)) {
-            return sql.options(target);
-        }
-        ModelMeta meta = ModelMeta.of(target);
-        Query<?> query = scoped(user, target).orderBy(meta.idField().name(), SortType.ASC);
-        Map<String, String> options = new LinkedHashMap<>();
-        for (Object row : sql.selectList(query)) {
-            options.put(String.valueOf(meta.idValue(row)), meta.display(row));
-        }
-        return options;
+        return sql.options(field.relatedClass());
     }
 
+    /**
+     * 保存前校验关联目标存在。
+     *
+     * @param user  当前用户
+     * @param owner 拥有该字段的模型
+     * @param field 关联字段
+     * @param id    关联主键
+     */
     public void validate(LoginUser user, Class<?> owner, FieldDescriptor field, String id) {
-        if (!controlled(owner) || id == null) {
+        if (id == null) {
             return;
         }
         Class<?> target = field.relatedClass();
-        Query<?> query = scoped(user, target).where(ModelMeta.of(target).idField().name(), id);
-        if (sql.count(query) == 0) {
-            throw ApiException.forbidden("所选「" + field.text() + "」不存在或不在可选范围");
+        ModelMeta meta = ModelMeta.of(target);
+        if (sql.count(Query.of(target).where(meta.idField().name(), id)) == 0) {
+            throw ApiException.badRequest("所选「" + field.text() + "」不存在：" + id);
         }
-    }
-
-    public void assignDepartment(LoginUser user, ModelMeta meta, Object entity) {
-        if (!controlled(meta.modelClass()) || unrestricted(user) || user.dataScope() != DataScope.DEPT) {
-            return;
-        }
-        if (user.deptId() == null) {
-            throw ApiException.forbidden("当前账号未分配部门");
-        }
-        FieldDescriptor field = meta.field("deptId").orElseThrow();
-        if (field.read(entity) == null) {
-            field.write(entity, user.deptId());
-        }
-    }
-
-    public Map<String, String> departments(LoginUser user) {
-        if (unrestricted(user)) {
-            return sql.options(Department.class);
-        }
-        Map<String, String> result = new LinkedHashMap<>();
-        for (Department department : sql.selectList(scoped(user, Department.class))) {
-            result.put(department.id, department.name);
-        }
-        return result;
-    }
-
-    private <T> Query<T> scoped(LoginUser user, Class<T> target) {
-        Query<T> query = sql.displayQuery(target);
-        if (unrestricted(user)) {
-            return query;
-        }
-        String department = user.deptId() == null ? Ids.NO_MATCH : user.deptId();
-        if (target == Department.class) {
-            return query.where("id", department);
-        }
-        if (user.dataScope() == DataScope.DEPT) {
-            return query.where("deptId", department);
-        }
-        return target == User.class ? query.where("id", user.id()) : query.where("createBy", user.id());
-    }
-
-    private static boolean controlled(Class<?> type) {
-        return type == Ticket.class || type == Employee.class || type == Asset.class;
-    }
-
-    private static boolean unrestricted(LoginUser user) {
-        return user.isAdmin() || user.dataScope() == null || user.dataScope() == DataScope.ALL;
     }
 }

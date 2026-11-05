@@ -203,9 +203,6 @@ async function send() {
         const files = []
         if (event.audit.result?.ok && result?.id) {
           if (event.audit.name === 'ims_upload_text_file') files.push(result)
-          if (event.audit.name === 'ims_attach_record_file') {
-            files.push({ ...result, downloadPath: `/models/${result.model}/${result.recordId}/attachments/${result.id}/download` })
-          }
         }
         messages.value.push({ role: 'assistant', audit: [event.audit], attachments: files })
       }
@@ -432,7 +429,7 @@ onMounted(async () => {
         <div v-if="!messages.length" class="chat-empty">
           <h3>向数据提问，或让助手改数据</h3>
           <p class="muted small">
-            试试：「技术部现在有多少员工？」「把工单 #1 的状态改成处理中」「列出状态为闲置的资产」。
+            试试：「技术部现在有多少员工？」「列出难度为难的论文」「统计每个指导教师带了几篇论文」。
           </p>
           <p class="muted small">助手只能看到你有权看到的数据；删除操作会先向你确认。</p>
         </div>

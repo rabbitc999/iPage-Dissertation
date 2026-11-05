@@ -1,0 +1,17 @@
+# 免安装数据库模式：本地 H2 文件库。
+#
+#   java -jar ims-server.jar --spring.profiles.active=h2
+#
+# 注意：这是一个**独立的空库**，与 PostgreSQL 里的正式数据互不相干。
+# 为了不出现「连上去了但查询恒为空」，这里打开内置演示数据：
+# 启动时如果论文域为空，会自动导入 seed/thesis-data.sql（4414 行）。
+# 不想自动灌数据就把 ims.seed-thesis 改成 false。
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/ims;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+ims:
+  seed-thesis: true

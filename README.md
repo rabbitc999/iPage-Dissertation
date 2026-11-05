@@ -38,7 +38,7 @@
 ## 技术栈
 
 - **后端**：Java 17 · Spring Boot 3.3 · iPage（内置源码）· EmbedAiChat（内置源码）
-- **数据库**：默认 H2 文件库（开箱即跑），一键切 MySQL / PostgreSQL
+- **数据库**：默认 PostgreSQL；`h2` profile 可免安装运行，也可切 MySQL
 - **前端**：Vue 3.5 · Vue Router 4 · Vite 6，AI 回复支持 Markdown 与 LaTeX
 - **AI**：OpenAI 兼容协议（默认 DeepSeek），MCP 走 stdio JSON-RPC
 
@@ -139,15 +139,19 @@ MCP/Skill 配置变更即时生效，无需重启。详细机制见 [docs/07-AI�
 
 ## 切换数据库
 
+默认连 **PostgreSQL**（`application.yml`，库名 `ipage_ims`），论文域的正式数据就放在那里。
+
 ```bash
-# MySQL（先建库 ipage_ims）
+# 默认：PostgreSQL
+java -jar ims-server.jar
+# 凭据用环境变量覆盖：PG_USER / PG_PASSWORD
+
+# 免安装的本地文件库（独立空库，首次启动会自动灌内置演示数据）
+java -jar ims-server.jar --spring.profiles.active=h2
+
+# MySQL
 java -jar ims-server.jar --spring.profiles.active=mysql \
      -DMYSQL_USER=root -DMYSQL_PASSWORD=你的密码
-# 或环境变量 MYSQL_USER / MYSQL_PASSWORD
-
-# PostgreSQL
-java -jar ims-server.jar --spring.profiles.active=postgres \
-     -DPG_USER=postgres -DPG_PASSWORD=你的密码
 ```
 
 表结构由 iPage 自动创建（只建表、只补列，不改类型、不删列）。

@@ -14,11 +14,12 @@ spring:
   application:
     name: ipage-ims
   datasource:
-    # 默认 H2 文件库，开箱即跑。切库见 application-mysql.yml / application-postgres.yml
-    url: jdbc:h2:file:./data/ims;AUTO_SERVER=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: ""
+    # 默认 PostgreSQL：论文域的正式数据在这里。
+    # 想用免安装的本地文件库：--spring.profiles.active=h2（空库会自动灌内置演示数据）。
+    url: jdbc:postgresql://127.0.0.1:5432/ipage_ims
+    driver-class-name: org.postgresql.Driver
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:123456}
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -53,7 +54,9 @@ ims:
   ai:
     available: true # false 时移除管理入口，并停用对话
     max-tokens: 2048
-    context-budget: 16000
+    # 单次请求的上下文上限（tokens），按所选模型的能力设置。
+    # 超了会报「Context budget exceeded」；模型窗口更小时请调低。
+    context-budget: ${IMS_AI_CONTEXT_BUDGET:300000}
     work-dir: ./data/ai
 
 logging:

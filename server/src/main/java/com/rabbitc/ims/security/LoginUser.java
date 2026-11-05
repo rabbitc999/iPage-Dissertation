@@ -18,13 +18,12 @@ import java.util.Set;
  * @param level       权限等级，取所有角色等级的最大值
  * @param permissions 权限点编码集合
  * @param dataScope   数据范围，取所有角色中最宽的那个
- * @param deptId      所属部门（UUID）
  * @param tokenVersion 令牌版本
  * @author 小兔糖糖OvO
  * @since 1.0
  */
 public record LoginUser(String id, String username, String name, String avatar, int level,
-                        Set<String> permissions, DataScope dataScope, String deptId,
+                        Set<String> permissions, DataScope dataScope,
                         int tokenVersion) {
 
     /**

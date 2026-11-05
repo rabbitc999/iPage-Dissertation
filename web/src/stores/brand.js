@@ -8,7 +8,7 @@ import { api } from '../api/http'
  * 因此接口挂掉时页面也不会缺标题。
  */
 export const brand = reactive({
-  siteName: '信息管理系统',
+  siteName: '毕业论文管理系统',
   logoUrl: '',
   loginImageUrl: '',
   loaded: false
@@ -16,7 +16,7 @@ export const brand = reactive({
 
 /** 将服务端返回的品牌设置同步给当前页面的侧边栏。 */
 export function applyBrand(data) {
-  if (typeof data?.siteName === 'string') brand.siteName = data.siteName || '信息管理系统'
+  if (typeof data?.siteName === 'string') brand.siteName = data.siteName || '毕业论文管理系统'
   brand.logoUrl = data?.logoUrl || ''
   brand.loginImageUrl = data?.loginImageUrl || ''
   brand.loaded = true
