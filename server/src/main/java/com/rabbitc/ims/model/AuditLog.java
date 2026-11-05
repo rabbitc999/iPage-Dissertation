@@ -10,14 +10,15 @@ import java.time.LocalDateTime;
 /**
  * 操作审计日志。
  * <p>
- * 由通用 CRUD 自动写入，页面只读：{@code edit = FORBIDDEN} 让所有等级的编辑请求都被拒绝。
+ * 由通用 CRUD 自动写入，查看和删除分别由独立权限点控制；禁止人工新增和编辑：{@code edit = FORBIDDEN} 让所有等级的编辑请求都被拒绝。
  *
  * @author 小兔糖糖OvO
  * @since 1.0
  */
 @ModelClass(name = "审计日志", table = "sys_audit_log", icon = "fa-history",
         look = ModelPermission.ADMIN, edit = ModelPermission.FORBIDDEN,
-        delete = ModelPermission.SUPER_ADMIN, text = "${action}")
+        delete = ModelPermission.SUPER_ADMIN, text = "${action}",
+        viewKey = "system:audit:view", deleteKey = "system:audit:delete")
 public class AuditLog {
 
     /** 主键。 */

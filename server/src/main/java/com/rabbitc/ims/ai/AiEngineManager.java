@@ -69,6 +69,7 @@ public class AiEngineManager {
     private static final Logger LOG = LoggerFactory.getLogger(AiEngineManager.class);
     private static final Gson GSON = new Gson();
 
+    private final AiToolGuard toolGuard;
     private final AiProperties props;
     private final AiConfiguration configuration;
     private final CrudService crud;
@@ -99,7 +100,9 @@ public class AiEngineManager {
      */
     public AiEngineManager(AiProperties props, CrudService crud, MetaService metaService, ModelSession sql,
                            FileController files, ProfileController profiles, AiConfiguration configuration,
-                           RecordAttachmentService recordAttachments, ModelRegistry registry, DataSource dataSource) {
+                           RecordAttachmentService recordAttachments, ModelRegistry registry, DataSource dataSource,
+                           AiToolGuard toolGuard) {
+        this.toolGuard = toolGuard;
         this.dataSource = dataSource;
         this.registry = registry;
         this.props = props;
@@ -276,7 +279,7 @@ public class AiEngineManager {
                                         long version, List<String> ids, boolean allowFileWrites, ToolAccess access,
                                         boolean deepThinking, String conversationId,
                                         java.util.function.Consumer<JsonObject> events, AtomicBoolean cancelled) {
-        boolean externalMcp = allowTools && access == ToolAccess.FULL && user.isAdmin();
+        boolean externalMcp = allowTools && access == ToolAccess.FULL && AiToolGuard.canUseExternalMcp(user);
         Session session = sessionFor(user, model, version, externalMcp);
         synchronized (session) {
             var attachments = new LinkedHashMap<String, SysFile>();
@@ -536,10 +539,18 @@ public class AiEngineManager {
         engine.config.contextBudget = props.getContextBudget();
 
         Session session = new Session(engine, model, user.isAdmin(), externalMcp);
-        engine.toolDenial = name -> toolDenial(session.access, requiredAccess(name));
+        engine.toolDenial = name -> {
+            try {
+                toolGuard.require(user.id(), model.id, session.access, requiredAccess(name),
+                        session.externalTools.contains(name));
+                return toolDenial(session.access, requiredAccess(name));
+            } catch (ApiException denied) {
+                return "操作已拦截。" + denied.getMessage();
+            }
+        };
         if (model.allowTools) {
             registerTools(engine, session);
-            // 外部工具无法可靠区分读写，只在管理员明确选择最高权限时挂载。
+            // 外部进程不继承员工数据权限，只允许全数据范围的超级管理员显式使用。
             if (externalMcp) attachMcp(session);
         }
         loadSkills(session, prepareWorkDir());
@@ -589,7 +600,11 @@ public class AiEngineManager {
                 List<String> argv = parseCommand(server.command);
                 int timeout = server.timeoutMs == null ? 15000 : server.timeoutMs;
                 client = new EmbedAiChat.McpClient(argv, timeout);
+                Set<String> existing = Set.copyOf(toolNames(session.engine));
                 session.engine.attachMcp(server.prefix, client);
+                for (String name : toolNames(session.engine)) {
+                    if (!existing.contains(name)) session.externalTools.add(name);
+                }
                 session.mcpClients.add(client);
                 status.put("ok", true);
                 status.put("tools", client.tools().size());
@@ -770,15 +785,22 @@ public class AiEngineManager {
                 }));
     }
 
-    private static void registerHostTool(EmbedAiChat.Engine engine, EmbedAiChat.Tool tool) {
+    private void registerHostTool(EmbedAiChat.Engine engine, EmbedAiChat.Tool tool) {
         engine.registerTool(new EmbedAiChat.Tool(tool.name(), tool.description(), tool.schema(), args -> {
+            LoginUser previous = UserContext.get();
             try {
+                if (previous == null) throw ApiException.forbidden("缺少当前员工身份");
+                LoginUser current = toolGuard.current(previous.id());
+                UserContext.set(current);
                 return tool.handler().call(args);
             } catch (ApiException denied) {
                 if (denied.status() == HttpStatus.FORBIDDEN) {
                     throw new EmbedAiChat.ToolPermissionDenied("操作已拦截。" + denied.getMessage());
                 }
                 throw denied;
+            } finally {
+                if (previous == null) UserContext.clear();
+                else UserContext.set(previous);
             }
         }));
     }
@@ -863,6 +885,7 @@ public class AiEngineManager {
         private ToolAccess access = ToolAccess.READ_ONLY;
         private boolean fileWrites;
         private Map<String, SysFile> attachments = Map.of();
+        private final Set<String> externalTools = new java.util.HashSet<>();
         private final List<EmbedAiChat.McpClient> mcpClients = new ArrayList<>();
         private final List<Map<String, Object>> mcpStatus = new ArrayList<>();
         private final List<String> skills = new ArrayList<>();

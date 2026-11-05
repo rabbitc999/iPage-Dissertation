@@ -79,6 +79,8 @@ public class DataInitializer implements ApplicationRunner {
         }
         long users = sql.count(Query.of(User.class));
         if (users > 0) {
+            // 已有库只补权限定义，不自动改变角色授权。
+            sql.transaction(tx -> ensureAuditPermissions(tx));
             LOG.info("[ims] 已存在 {} 个用户，跳过初始账号创建", users);
             return;
         }
@@ -106,11 +108,34 @@ public class DataInitializer implements ApplicationRunner {
         Map<String, Permission> map = new LinkedHashMap<>();
         map.put("system:user:manage", permission(tx, "system:user:manage", "用户管理", "系统管理", 1));
         map.put("system:role:manage", permission(tx, "system:role:manage", "角色与权限", "系统管理", 2));
-        map.put("system:audit:view", permission(tx, "system:audit:view", "审计日志", "系统管理", 3));
+        map.putAll(ensureAuditPermissions(tx));
         map.put("system:setting:manage", permission(tx, "system:setting:manage", "系统图像设置", "系统管理", 4));
         map.put("ai:use", permission(tx, "ai:use", "使用 AI 助手", "智能助手", 1));
         map.put("ai:manage", permission(tx, "ai:manage", "管理 MCP 与 Skill", "智能助手", 2));
         return map;
+    }
+
+    /** 新旧数据库都补齐日志权限；重复启动不重复插入，也不恢复已撤销的授权。 */
+    private Map<String, Permission> ensureAuditPermissions(ModelSession tx) {
+        Map<String, Permission> permissions = new LinkedHashMap<>();
+        for (String action : List.of("view", "delete")) {
+            String code = "system:audit:" + action;
+            String name = "view".equals(action) ? "查看审计日志" : "删除审计日志";
+            Permission existing = tx.<Permission>selectOne(Query.of(Permission.class).where("code", code))
+                    .orElse(null);
+            if (existing == null) {
+                existing = permission(tx, code, name, "系统管理", "view".equals(action) ? 3 : 5);
+            } else if ("view".equals(action) && "审计日志".equals(existing.name)) {
+                existing.name = name;
+                try {
+                    tx.update(existing);
+                } catch (com.rabbitc.ipage.exception.CheckerException error) {
+                    throw new IllegalStateException("更新日志权限名称失败", error);
+                }
+            }
+            permissions.put(code, existing);
+        }
+        return permissions;
     }
 
     private Permission permission(ModelSession tx, String code, String name, String group, int sort) {
@@ -131,7 +156,9 @@ public class DataInitializer implements ApplicationRunner {
         roles.put("STAFF", role(tx, "STAFF", "普通员工", 1, DataScope.SELF, "只能看到自己创建的数据"));
 
         grant(tx, roles.get("SUPER_ADMIN"), permissions.values());
-        grant(tx, roles.get("ADMIN"), permissions.values());
+        grant(tx, roles.get("ADMIN"), permissions.entrySet().stream()
+                .filter(entry -> !"system:audit:delete".equals(entry.getKey()))
+                .map(Map.Entry::getValue).toList());
         grant(tx, roles.get("MANAGER"), List.of(permissions.get("ai:use")));
         grant(tx, roles.get("STAFF"), List.of(permissions.get("ai:use")));
         return roles;
